@@ -1,0 +1,1351 @@
+# ACDCPF User's Manual
+
+**Hybrid AC/DC Power Flow Library**
+
+*Version 0.1.0*
+
+---
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [Quick Start](#quick-start)
+4. [Network Data Model](#network-data-model)
+5. [Element Creation API](#element-creation-api)
+6. [Power Flow Analysis](#power-flow-analysis)
+7. [Algorithms and Theory](#algorithms-and-theory)
+8. [Results and Output](#results-and-output)
+9. [Built-in Test Networks](#built-in-test-networks)
+10. [Complete Examples](#complete-examples)
+11. [API Reference](#api-reference)
+
+---
+
+## Introduction
+
+ACDCPF is a Python library for power flow analysis in hybrid AC/DC networks. It implements the **sequential AC/DC power flow method** based on the algorithms described in Beerten's work on VSC-HVDC systems.
+
+### Key Features
+
+- **Multi-terminal VSC-HVDC systems** with various converter control modes
+- **DC-DC converters** for interconnecting DC grids of different voltage levels
+- **Multiple independent DC grids** with proper voltage control coordination
+- **Six VSC control modes**: P-Q, P-Vac, Vdc-Q, Vdc-Vac, Droop-Q, Droop-Vac
+- **DC loads and generators** for modeling DC-side equipment
+- **AC network islands** handled independently via connected component analysis
+- **Newton-Raphson solvers** for both AC and DC power flow
+
+### Applications
+
+- Point-to-point HVDC transmission analysis
+- Multi-terminal HVDC (MTDC) grid studies
+- Offshore wind farm grid integration
+- DC grid interconnection studies
+- Hybrid AC/DC system planning
+
+### Dependencies
+
+- Python 3.9+
+- NumPy
+- SciPy
+- Pandas
+- PyPower
+
+---
+
+## Installation
+
+### From Source
+
+```bash
+git clone https://github.com/your-repo/acdcpf.git
+cd acdcpf
+pip install -e .
+```
+
+### Dependencies
+
+```bash
+pip install numpy scipy pandas pypower
+```
+
+---
+
+## Quick Start
+
+### Basic Usage Pattern
+
+```python
+import acdcpf as pf
+
+# 1. Create an empty network
+net = pf.create_empty_network(name="My Network", s_base=100.0)
+
+# 2. Add AC elements
+b0 = pf.create_ac_bus(net, vr_kv=380.0, name="AC-Slack")
+b1 = pf.create_ac_bus(net, vr_kv=380.0, name="AC-Load")
+pf.create_ac_line(net, b0, b1, length_km=100, r_ohm_per_km=0.02, x_ohm_per_km=0.268)
+pf.create_ac_gen(net, bus=b0, p_mw=0.0, v_pu=1.0)
+pf.create_ac_load(net, bus=b1, p_mw=500.0, q_mvar=100.0)
+
+# 3. Add DC elements
+dc0 = pf.create_dc_bus(net, v_base=400.0, bus_type="vdc", v_dc_pu=1.0)
+dc1 = pf.create_dc_bus(net, v_base=400.0, bus_type="p", v_dc_pu=1.0)
+pf.create_dc_line(net, dc0, dc1, length_km=100, r_ohm_per_km=0.0114)
+
+# 4. Add VSC converters
+pf.create_vsc(net, ac_bus=b0, dc_bus=dc0, s_mva=600, control_mode="vdc_q", v_dc_pu=1.0)
+pf.create_vsc(net, ac_bus=b1, dc_bus=dc1, s_mva=600, control_mode="p_q", p_mw=500.0)
+
+# 5. Run power flow
+converged = pf.run_pf(net, verbose=True)
+
+# 6. Access results
+print(net.res_ac_bus)
+print(net.res_dc_bus)
+print(net.res_vsc)
+```
+
+### Using Built-in Test Networks
+
+```python
+import acdcpf as pf
+from acdcpf.powerflow import run_pf
+
+# Load 2-terminal HVDC test system
+net = pf.create_2terminal_hvdc()
+converged = run_pf(net, verbose=True)
+
+# Load CIGRE B4 DC grid test system
+net = pf.create_cigre_b4_dc_test_system()
+converged = run_pf(net, verbose=True)
+```
+
+---
+
+## Network Data Model
+
+### Network Object
+
+The `Network` class is the central data container that holds all network elements as pandas DataFrames.
+
+```python
+from acdcpf import create_empty_network
+
+net = create_empty_network(
+    name="My Network",    # Network name
+    s_base=100.0,         # System base power (MVA)
+    f_hz=50.0,            # System frequency (Hz)
+    poles=2               # DC poles (2 for bipole/symmetric monopole)
+)
+```
+
+### Network Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | str | Network name |
+| `s_base` | float | Base power (MVA), default 100.0 |
+| `f_hz` | float | System frequency (Hz), default 50.0 |
+| `poles` | int | DC poles (1=asymmetric monopole, 2=bipole/symmetric monopole) |
+| `ac_bus` | DataFrame | AC bus data |
+| `ac_line` | DataFrame | AC transmission line data |
+| `ac_load` | DataFrame | AC load data |
+| `ac_gen` | DataFrame | AC generator data |
+| `dc_bus` | DataFrame | DC bus data |
+| `dc_line` | DataFrame | DC line data |
+| `dc_load` | DataFrame | DC load data |
+| `dc_gen` | DataFrame | DC generator data |
+| `vsc` | DataFrame | VSC converter data |
+| `dcdc` | DataFrame | DC-DC converter data |
+
+### Result Attributes (populated after power flow)
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `res_ac_bus` | DataFrame | AC bus results |
+| `res_ac_line` | DataFrame | AC line results |
+| `res_dc_bus` | DataFrame | DC bus results |
+| `res_dc_line` | DataFrame | DC line results |
+| `res_vsc` | DataFrame | VSC converter results |
+| `res_dcdc` | DataFrame | DC-DC converter results |
+
+---
+
+## Element Creation API
+
+### AC Buses
+
+```python
+idx = pf.create_ac_bus(
+    net,                  # Network object
+    vr_kv=380.0,          # Rated voltage (kV)
+    v_min_pu=0.95,        # Minimum voltage limit (pu)
+    v_max_pu=1.05,        # Maximum voltage limit (pu)
+    in_service=True,      # Bus in service
+    name="Bus1"           # Bus name
+)
+```
+
+**DataFrame columns (`net.ac_bus`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Bus name |
+| `vr_kv` | float | kV | Rated voltage |
+| `v_min_pu` | float | pu | Minimum voltage limit |
+| `v_max_pu` | float | pu | Maximum voltage limit |
+| `in_service` | bool | - | Bus status |
+
+### AC Lines
+
+```python
+idx = pf.create_ac_line(
+    net,                     # Network object
+    from_bus=0,              # From bus index
+    to_bus=1,                # To bus index
+    length_km=100.0,         # Line length (km)
+    r_ohm_per_km=0.02,       # Resistance (Ohm/km)
+    x_ohm_per_km=0.268,      # Reactance (Ohm/km)
+    b_us_per_km=4.24,        # Shunt susceptance (uS/km)
+    g_us_per_km=0.0,         # Shunt conductance (uS/km)
+    max_i_ka=2.0,            # Maximum current (kA)
+    in_service=True,         # Line in service
+    name="Line1"             # Line name
+)
+```
+
+**DataFrame columns (`net.ac_line`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Line name |
+| `from_bus` | int | - | From bus index |
+| `to_bus` | int | - | To bus index |
+| `length_km` | float | km | Line length |
+| `r_ohm_per_km` | float | Ohm/km | Series resistance per km |
+| `x_ohm_per_km` | float | Ohm/km | Series reactance per km |
+| `b_us_per_km` | float | uS/km | Shunt susceptance per km |
+| `g_us_per_km` | float | uS/km | Shunt conductance per km |
+| `max_i_ka` | float | kA | Maximum current rating |
+| `in_service` | bool | - | Line status |
+
+**Note:** Reactance can be calculated from inductance: `X = 2 * pi * f * L`
+
+For a 50 Hz system with L = 0.8532 mH/km:
+```python
+import math
+x_ohm_per_km = 2 * math.pi * 50 * 0.8532e-3  # = 0.268 Ohm/km
+```
+
+### AC Loads
+
+```python
+idx = pf.create_ac_load(
+    net,                   # Network object
+    bus=1,                 # Bus index
+    p_mw=500.0,            # Active power (MW)
+    q_mvar=100.0,          # Reactive power (MVAr)
+    in_service=True,       # Load in service
+    name="Load1"           # Load name
+)
+```
+
+**Convention:** Positive values represent power consumption.
+
+**DataFrame columns (`net.ac_load`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Load name |
+| `bus` | int | - | Bus index |
+| `p_mw` | float | MW | Active power (positive = consumption) |
+| `q_mvar` | float | MVAr | Reactive power |
+| `in_service` | bool | - | Load status |
+
+### AC Generators
+
+```python
+idx = pf.create_ac_gen(
+    net,                   # Network object
+    bus=0,                 # Bus index
+    p_mw=500.0,            # Active power setpoint (MW)
+    q_mvar=0.0,            # Reactive power setpoint (MVAr)
+    v_pu=1.0,              # Voltage setpoint (pu) - makes this a PV bus
+    q_min_mvar=-200.0,     # Minimum reactive power (MVAr)
+    q_max_mvar=200.0,      # Maximum reactive power (MVAr)
+    in_service=True,       # Generator in service
+    name="Gen1"            # Generator name
+)
+```
+
+**Bus Types:**
+- If `v_pu` is specified: Generator becomes a **PV bus** (voltage-controlled)
+- If `v_pu` is None/0: Generator becomes a **PQ bus** (power-controlled)
+- The first PV generator becomes the **slack bus** (reference)
+
+**DataFrame columns (`net.ac_gen`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Generator name |
+| `bus` | int | - | Bus index |
+| `p_mw` | float | MW | Active power setpoint |
+| `q_mvar` | float | MVAr | Reactive power setpoint |
+| `v_pu` | float | pu | Voltage setpoint (optional) |
+| `q_min_mvar` | float | MVAr | Minimum reactive power |
+| `q_max_mvar` | float | MVAr | Maximum reactive power |
+| `in_service` | bool | - | Generator status |
+
+### DC Buses
+
+```python
+idx = pf.create_dc_bus(
+    net,                   # Network object
+    v_base=400.0,          # Base voltage (kV, pole-to-pole)
+    dc_grid=0,             # DC grid ID (for multi-grid systems)
+    bus_type="vdc",        # Bus type: "vdc", "p", or "droop"
+    v_dc_pu=1.0,           # DC voltage setpoint (pu)
+    v_min=0.95,            # Minimum voltage (pu)
+    v_max=1.05,            # Maximum voltage (pu)
+    in_service=True,       # Bus in service
+    name="DC-Bus1"         # Bus name
+)
+```
+
+**Bus Types:**
+
+| Type | Description | Voltage | Power |
+|------|-------------|---------|-------|
+| `"vdc"` | DC slack bus | Specified | Calculated |
+| `"p"` | P-controlled bus | Calculated | Specified by VSC |
+| `"droop"` | Droop-controlled bus | Calculated | Follows droop law |
+
+**Voltage Convention:**
+- For symmetric monopole (+/-200 kV): use `v_base=200` (per pole)
+- For bipole (+/-400 kV): use `v_base=400` (per pole)
+- The `poles` parameter in `create_empty_network` handles the pole configuration
+
+**DataFrame columns (`net.dc_bus`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Bus name |
+| `v_base` | float | kV | Base voltage (pole-to-pole) |
+| `dc_grid` | int | - | DC grid identifier |
+| `bus_type` | str | - | "vdc", "p", or "droop" |
+| `v_dc_pu` | float | pu | Voltage setpoint/initial value |
+| `v_min` | float | pu | Minimum voltage limit |
+| `v_max` | float | pu | Maximum voltage limit |
+| `in_service` | bool | - | Bus status |
+
+### DC Lines
+
+```python
+idx = pf.create_dc_line(
+    net,                   # Network object
+    from_bus=0,            # From DC bus index
+    to_bus=1,              # To DC bus index
+    length_km=100.0,       # Line length (km)
+    r_ohm_per_km=0.0114,   # Resistance (Ohm/km)
+    max_i_ka=3.0,          # Maximum current (kA)
+    in_service=True,       # Line in service
+    name="DC-Line1"        # Line name
+)
+```
+
+**Note:** DC lines are modeled as purely resistive (no inductance for steady-state DC).
+
+Typical DC line resistances:
+- DC OHL +/-400 kV: 0.0114 Ohm/km
+- DC OHL +/-200 kV: 0.0133 Ohm/km
+- DC cable +/-400 kV: 0.0095 Ohm/km
+- DC cable +/-200 kV: 0.0095 Ohm/km
+
+**DataFrame columns (`net.dc_line`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Line name |
+| `from_bus` | int | - | From DC bus index |
+| `to_bus` | int | - | To DC bus index |
+| `length_km` | float | km | Line length |
+| `r_ohm_per_km` | float | Ohm/km | Resistance per km |
+| `max_i_ka` | float | kA | Maximum current rating |
+| `in_service` | bool | - | Line status |
+
+### DC Loads
+
+```python
+idx = pf.create_dc_load(
+    net,                     # Network object
+    bus=1,                   # DC bus index
+    p_mw=50.0,               # Active power (MW)
+    load_type="constant_power",  # "constant_power" or "constant_impedance"
+    in_service=True,         # Load in service
+    name="DC-Load1"          # Load name
+)
+```
+
+**DataFrame columns (`net.dc_load`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Load name |
+| `bus` | int | - | DC bus index |
+| `p_mw` | float | MW | Active power |
+| `load_type` | str | - | Load type |
+| `in_service` | bool | - | Load status |
+
+### DC Generators
+
+```python
+idx = pf.create_dc_gen(
+    net,                   # Network object
+    bus=0,                 # DC bus index
+    p_mw=100.0,            # Active power (MW)
+    in_service=True,       # Generator in service
+    name="DC-Gen1"         # Generator name
+)
+```
+
+**DataFrame columns (`net.dc_gen`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Generator name |
+| `bus` | int | - | DC bus index |
+| `p_mw` | float | MW | Active power |
+| `in_service` | bool | - | Generator status |
+
+### VSC Converters
+
+The VSC (Voltage Source Converter) is the heart of AC/DC coupling. ACDCPF supports six control modes:
+
+```python
+idx = pf.create_vsc(
+    net,                       # Network object
+    ac_bus=0,                  # AC bus index
+    dc_bus=0,                  # DC bus index
+    s_mva=600.0,               # Rated apparent power (MVA)
+    control_mode="p_q",        # Control mode (see table below)
+    p_mw=500.0,                # Active power setpoint (MW)
+    q_mvar=0.0,                # Reactive power setpoint (MVAr)
+    v_ac_pu=1.0,               # AC voltage setpoint (pu)
+    v_dc_pu=1.0,               # DC voltage setpoint (pu)
+    droop_kv_per_mw=0.025,     # Droop constant (kV/MW)
+    p_dc_set_mw=0.0,           # Droop P setpoint (MW)
+    v_dc_set_pu=1.0,           # Droop Vdc setpoint (pu)
+    loss_a=1.0,                # Constant loss term (MW)
+    loss_b=0.0,                # Linear loss term (kV)
+    loss_c=0.0,                # Quadratic loss term (Ohm)
+    r_pu=0.01,                 # Converter resistance (pu)
+    x_pu=0.10,                 # Converter reactance (pu)
+    b_filter_pu=0.05,          # Filter susceptance (pu)
+    in_service=True,           # Converter in service
+    name="VSC1"                # Converter name
+)
+```
+
+**Control Modes:**
+
+| Mode | AC Control | DC Control | Use Case |
+|------|------------|------------|----------|
+| `"p_q"` | Constant P, Q | - | Standard power injection |
+| `"p_vac"` | Constant P, Vac | - | Offshore wind (AC voltage control) |
+| `"vdc_q"` | Constant Q | Vdc slack | DC voltage control |
+| `"vdc_vac"` | Vac control | Vdc slack | Full voltage control |
+| `"droop_q"` | Constant Q | P-Vdc droop | Autonomous power sharing |
+| `"droop_vac"` | Vac control | P-Vdc droop | Vac + droop control |
+
+**Power Convention:**
+- Positive P_s (AC-side power) = **Rectifier** (AC → DC)
+- Negative P_s = **Inverter** (DC → AC)
+
+**Droop Control:**
+The P-Vdc droop characteristic follows:
+```
+P = P0 - (1/k) * (V_dc - V0)
+```
+Where:
+- `k` = droop constant (kV/MW), specified as `droop_kv_per_mw`
+- `P0` = power setpoint, specified as `p_dc_set_mw`
+- `V0` = voltage setpoint, specified as `v_dc_set_pu`
+
+**Converter Losses:**
+Losses are modeled as:
+```
+P_loss = a + b * |I_c| + c * |I_c|^2
+```
+Where `I_c` is the converter current magnitude.
+
+**DataFrame columns (`net.vsc`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Converter name |
+| `ac_bus` | int | - | AC bus index |
+| `dc_bus` | int | - | DC bus index |
+| `s_mva` | float | MVA | Rated power |
+| `control_mode` | str | - | Control mode |
+| `p_mw` | float | MW | P setpoint |
+| `q_mvar` | float | MVAr | Q setpoint |
+| `v_ac_pu` | float | pu | AC voltage setpoint |
+| `v_dc_pu` | float | pu | DC voltage setpoint |
+| `droop_kv_per_mw` | float | kV/MW | Droop constant |
+| `p_dc_set_mw` | float | MW | Droop P setpoint |
+| `v_dc_set_pu` | float | pu | Droop V setpoint |
+| `loss_a` | float | MW | Constant loss |
+| `loss_b` | float | kV | Linear loss coefficient |
+| `loss_c` | float | Ohm | Quadratic loss coefficient |
+| `r_pu` | float | pu | Converter resistance |
+| `x_pu` | float | pu | Converter reactance |
+| `b_filter_pu` | float | pu | Filter susceptance |
+| `in_service` | bool | - | Converter status |
+
+### DC-DC Converters
+
+DC-DC converters interconnect DC grids of different voltage levels.
+
+```python
+idx = pf.create_dcdc(
+    net,                    # Network object
+    from_bus=0,             # High-voltage bus index (V_m)
+    to_bus=1,               # Low-voltage bus index (V_c)
+    d_ratio=0.5,            # Voltage ratio D = V_c / V_m
+    r_ohm=1.92,             # Series resistance (Ohm)
+    g_us=0.39,              # Shunt conductance (uS)
+    in_service=True,        # Converter in service
+    name="DCDC1"            # Converter name
+)
+```
+
+**Voltage Transformation:**
+```
+V_c = D * V_m
+```
+
+**Power Flow Equations:**
+```
+P_m = D^2 * G_s * V_m^2 - D * G_s * V_m * V_c + G_shunt * V_m
+```
+
+**DataFrame columns (`net.dcdc`):**
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `name` | str | - | Converter name |
+| `from_bus` | int | - | High-voltage bus (V_m) |
+| `to_bus` | int | - | Low-voltage bus (V_c) |
+| `d_ratio` | float | - | Voltage ratio |
+| `r_ohm` | float | Ohm | Series resistance |
+| `g_us` | float | uS | Shunt conductance |
+| `in_service` | bool | - | Converter status |
+
+---
+
+## Power Flow Analysis
+
+### Running Power Flow
+
+```python
+from acdcpf.powerflow import run_pf
+
+converged = run_pf(
+    net,                   # Network object
+    verbose=False,         # Print iteration details
+    tol=1e-8,              # Convergence tolerance (MW)
+    max_iter_outer=50,     # Maximum outer iterations
+    max_iter_inner=30      # Maximum inner (NR) iterations
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `net` | Network | - | Network object (required) |
+| `verbose` | bool | False | Print convergence details |
+| `tol` | float | 1e-8 | Power mismatch tolerance (MW) |
+| `max_iter_outer` | int | 50 | Max sequential iterations |
+| `max_iter_inner` | int | 30 | Max Newton-Raphson iterations |
+
+**Return Value:**
+- `True` if converged within tolerance
+- `False` if maximum iterations reached
+
+### Convergence
+
+The power flow is considered converged when:
+```
+max|P_s^(k) - P_s^(k-1)| < tolerance
+```
+
+Where `P_s` is the AC-side power of all VSC converters.
+
+Typical convergence:
+- 3-10 outer iterations for well-posed problems
+- <5 inner NR iterations per outer iteration
+
+---
+
+## Algorithms and Theory
+
+### Sequential AC/DC Power Flow Method
+
+ACDCPF implements the sequential AC/DC power flow algorithm, which iterates between AC and DC subsystems until convergence.
+
+**Algorithm Flowchart:**
+
+```
+┌─────────────────────────────────────────┐
+│           Initialize                    │
+│  - Set initial VSC powers (P_s, Q_s)    │
+│  - Set initial DC voltages (V_dc)       │
+└───────────────────┬─────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│         AC Power Flow                   │
+│  - Newton-Raphson via PyPower           │
+│  - Get V_ac at all buses                │
+│  - Handle AC islands independently      │
+└───────────────────┬─────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│       Converter Calculations            │
+│  - Calculate V_f (filter voltage)       │
+│  - Calculate I_tf, I_c (currents)       │
+│  - Calculate P_loss (losses)            │
+│  - Calculate P_dc from AC solution      │
+└───────────────────┬─────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│         DC Power Flow                   │
+│  - Newton-Raphson on DC network         │
+│  - Get V_dc at all buses                │
+│  - Update slack/droop converter powers  │
+└───────────────────┬─────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│     Update Slack/Droop VSC Powers       │
+│  - Backward solver: P_dc → P_s          │
+│  - Update AC-side power injections      │
+└───────────────────┬─────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│         Check Convergence               │
+│  max|P_s^(k) - P_s^(k-1)| < tol ?       │
+└───────────────────┬─────────────────────┘
+                    │
+         ┌──────────┴──────────┐
+         │ No                  │ Yes
+         ▼                     ▼
+    [Next Iteration]      [Converged]
+```
+
+### VSC Converter Model
+
+The VSC is modeled with three main components:
+
+1. **AC-side transformer** with impedance Z_tf = R + jX
+2. **Filter** with shunt susceptance B_f
+3. **Power electronic converter** with losses
+
+**Equivalent Circuit:**
+
+```
+AC Bus (V_s)                                    DC Bus (V_dc)
+    │                                               │
+    │    ┌───────────┐                              │
+    ├────┤  Z_tf     ├────┬───────[Converter]──────┤
+    │    │ R + jX    │    │         P_loss          │
+    │    └───────────┘    │                         │
+    │                     │                         │
+    │               ┌─────┴─────┐                   │
+    │               │   jB_f    │                   │
+    │               │  (Filter) │                   │
+    │               └───────────┘                   │
+    │                                               │
+```
+
+**Key Equations (Beerten Equations 13.11-13.23):**
+
+1. **Transformer current:**
+```
+I_tf = conj(S_s / V_s)
+```
+
+2. **Filter voltage:**
+```
+V_f = V_s + I_tf * Z_tf
+```
+
+3. **Filter-side power:**
+```
+S_sf = V_f * conj(I_tf)
+```
+
+4. **Filter reactive power:**
+```
+Q_f = -B_f * |V_f|^2
+```
+
+5. **Converter-side power:**
+```
+S_cf = S_sf + j*Q_f
+```
+
+6. **Converter current:**
+```
+I_c = conj(S_cf / V_f)
+```
+
+7. **Converter losses:**
+```
+P_loss = a + b*|I_c| + c*|I_c|^2
+```
+
+8. **DC-side power:**
+```
+P_dc = Re(S_cf) - P_loss
+```
+
+### DC Network Model
+
+The DC network is modeled as a purely resistive network using conductance:
+
+**Conductance Matrix (G_dc):**
+
+For a DC line between buses i and j with resistance R:
+```
+G_ij = 1/R
+G_ii += G_ij
+G_jj += G_ij
+```
+
+**Power Balance Equation:**
+
+For each DC bus i:
+```
+P_i = pol * V_i * Σ_j(G_ij * V_j)
+```
+
+Where `pol` is the number of poles (1 or 2).
+
+### DC Bus Types
+
+**1. Vdc Slack Bus (`bus_type="vdc"`)**
+- Voltage is specified: V_i = V_spec
+- Power is calculated from the DC network solution
+- At least one Vdc slack required per DC grid
+
+**2. P-Controlled Bus (`bus_type="p"`)**
+- Power is specified by the connected VSC
+- Voltage is calculated via Newton-Raphson
+- Mismatch: `P_spec - P_calc = 0`
+
+**3. Droop-Controlled Bus (`bus_type="droop"`)**
+- Power follows the droop characteristic
+- Voltage is calculated via Newton-Raphson
+- Droop equation: `P = P0 - (1/k) * (V - V0)`
+- Mismatch: `P_droop - P_calc = 0`
+
+### Newton-Raphson for DC Power Flow
+
+**Jacobian Matrix:**
+
+For P-controlled buses:
+```
+J_ii = -P_calc_i / V_i - pol * V_i * G_ii
+J_ij = -pol * V_i * G_ij
+```
+
+For droop-controlled buses:
+```
+J_ii = -P_calc_i / V_i - pol * V_i * G_ii - 1/k_i
+J_ij = -pol * V_i * G_ij
+```
+
+**Update:**
+```
+ΔV = -J^(-1) * mismatch
+V^(k+1) = V^(k) + ΔV
+```
+
+### Backward Converter Solver
+
+For Vdc-slack and droop VSCs, the DC solution determines P_dc. The backward solver finds the corresponding AC-side power P_s:
+
+**Algorithm:**
+```
+Given: P_dc from DC solution, V_s from AC solution
+
+Initialize: p_s = P_dc (approximation)
+Iterate until convergence:
+    S_s = p_s + j*q_s
+    I_tf = conj(S_s / V_s)
+    V_f = V_s + I_tf * Z_tf
+    S_cf = V_f * conj(I_tf) + j*Q_f
+    I_c = conj(S_cf / V_f)
+    P_loss = a + b*|I_c| + c*|I_c|^2
+    p_s_new = (P_dc + P_loss + R_tf*|I_tf|^2) / S_base
+    Check: |p_s_new - p_s| < tolerance
+    p_s = p_s_new
+```
+
+---
+
+## Results and Output
+
+### AC Bus Results
+
+After power flow, `net.res_ac_bus` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `v_pu` | pu | Voltage magnitude |
+| `v_angle_deg` | deg | Voltage angle |
+| `p_mw` | MW | Net active power injection |
+| `q_mvar` | MVAr | Net reactive power injection |
+
+### AC Line Results
+
+`net.res_ac_line` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `p_from_mw` | MW | From-end active power |
+| `q_from_mvar` | MVAr | From-end reactive power |
+| `p_to_mw` | MW | To-end active power |
+| `q_to_mvar` | MVAr | To-end reactive power |
+| `p_loss_mw` | MW | Line active power loss |
+| `q_loss_mvar` | MVAr | Line reactive power loss |
+| `i_ka` | kA | Line current |
+| `loading_percent` | % | Loading as percentage of rating |
+
+### DC Bus Results
+
+`net.res_dc_bus` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `v_dc_pu` | pu | DC voltage |
+| `v_dc_kv` | kV | DC voltage in kV |
+| `p_mw` | MW | Net power injection |
+
+### DC Line Results
+
+`net.res_dc_line` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `p_from_mw` | MW | From-end power |
+| `p_to_mw` | MW | To-end power |
+| `p_loss_mw` | MW | Line loss |
+| `i_ka` | kA | Line current |
+
+### VSC Results
+
+`net.res_vsc` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `p_ac_mw` | MW | AC-side active power |
+| `q_ac_mvar` | MVAr | AC-side reactive power |
+| `p_dc_mw` | MW | DC-side power |
+| `p_loss_mw` | MW | Converter losses |
+| `v_ac_pu` | pu | AC voltage magnitude |
+| `v_dc_pu` | pu | DC voltage |
+| `v_converter_pu` | pu | Internal filter voltage |
+| `i_ac_ka` | kA | AC-side current |
+
+### DC-DC Converter Results
+
+`net.res_dcdc` contains:
+
+| Column | Unit | Description |
+|--------|------|-------------|
+| `p_from_mw` | MW | High-voltage side power |
+| `p_to_mw` | MW | Low-voltage side power |
+| `p_loss_mw` | MW | Converter losses |
+
+### Accessing Internal Variables
+
+Additional internal variables are stored on the network object:
+
+```python
+# DC voltages (numpy array)
+net._v_dc
+
+# VSC AC-side powers (numpy array)
+net._p_s
+net._q_s
+
+# VSC DC-side powers (numpy array)
+net._p_dc_vsc
+
+# VSC internal data (dict of dicts)
+net._vsc_internal[vsc_idx]  # Contains v_f, i_tf, i_c, p_loss, etc.
+```
+
+---
+
+## Built-in Test Networks
+
+### 2-Terminal HVDC
+
+A simple point-to-point HVDC system for basic validation:
+
+```python
+from acdcpf import create_2terminal_hvdc
+
+net = create_2terminal_hvdc()
+```
+
+**System Description:**
+
+```
+AC System                         DC System
+┌───────────────────┐           ┌───────────────────┐
+│                   │           │                   │
+│  [Gen]            │           │                   │
+│    │              │           │                   │
+│  AC-Slack ────────┼── VSC-0 ──┼── DC-Slack        │
+│  (380 kV)   100km │  (Vdc)    │  (400 kV)         │
+│    │      AC Line │           │    │ 100km        │
+│  AC-Load ─────────┼── VSC-1 ──┼── DC-P            │
+│  (380 kV)         │  (P=500)  │  (400 kV)         │
+│    │              │           │                   │
+│  [Load]           │           │                   │
+│  500MW, 100MVAr   │           │                   │
+└───────────────────┘           └───────────────────┘
+```
+
+**Parameters:**
+- AC buses: 380 kV rated voltage
+- AC line: 100 km, R=0.02 Ohm/km, X=0.268 Ohm/km, B=4.24 uS/km
+- DC buses: 400 kV pole-to-pole
+- DC line: 100 km, R=0.0114 Ohm/km
+- VSC-0: Vdc control at 1.0 pu
+- VSC-1: P control at 500 MW (rectifier)
+
+### CIGRE B4 DC Grid Test System
+
+The comprehensive CIGRE B4 DC grid test system for advanced studies:
+
+```python
+from acdcpf import create_cigre_b4_dc_test_system
+
+net = create_cigre_b4_dc_test_system()
+```
+
+**System Overview:**
+
+The CIGRE B4 DC grid test system consists of:
+
+- **2 onshore AC systems** (A and B) at 380 kV
+- **5 offshore AC systems** (C, D, E, F) at 145 kV
+- **3 independent DC grids:**
+  - DCS1: Symmetric monopole +/-200 kV
+  - DCS2: Symmetric monopole +/-200 kV
+  - DCS3: Bipole +/-400 kV
+- **13 VSC converters** with various control modes
+- **2 DC-DC converters** interconnecting different voltage levels
+
+**Network Topology:**
+
+```
+                    Onshore A (380 kV)
+                    ┌─────────────────┐
+                    │  [Slack A0]     │
+                    │      │          │
+                    │    Ba-A0 ═══════│══ parallel lines
+                    │      ║         │
+                    │    Ba-A1 ──────┼── Cm-A1 (DCS1, Vdc)
+                    │      │         │   Cb-A1 (DCS3, Vdc-Vac)
+                    │  [Gen -1000MW] │
+                    └─────────────────┘
+
+                    Offshore C (145 kV)
+                    ┌─────────────────┐
+                    │    Ba-C1 ──────┼── Cm-C1 (DCS1, P-Vac)
+                    │      │         │
+                    │    Ba-C2 ──────┼── Cb-C2 (DCS3, P-Vac)
+                    │      │         │
+                    │  [Wind -1000MW]│
+                    └─────────────────┘
+
+                    ... (additional systems B, D, E, F)
+```
+
+**Key Features:**
+- Multi-terminal DC configuration
+- Droop control for autonomous power sharing
+- DC-DC converters for voltage transformation
+- Offshore wind integration
+- Onshore load centers
+
+**Reference:**
+T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", ELECTRA No. 270, October 2013.
+
+---
+
+## Complete Examples
+
+### Example 1: Simple 2-Terminal HVDC
+
+```python
+"""
+Example 1: Simple 2-Terminal HVDC System
+
+This example creates a point-to-point HVDC link connecting two AC buses.
+One converter controls DC voltage, the other controls power.
+"""
+import acdcpf as pf
+from acdcpf.powerflow import run_pf
+
+# Create network
+net = pf.create_empty_network(name="Simple HVDC", s_base=100.0, f_hz=50.0)
+
+# === AC System ===
+# Add AC buses
+ac_slack = pf.create_ac_bus(net, vr_kv=400.0, name="AC-Slack")
+ac_load = pf.create_ac_bus(net, vr_kv=400.0, name="AC-Load")
+
+# Add AC transmission line (100 km)
+pf.create_ac_line(net,
+    from_bus=ac_slack, to_bus=ac_load,
+    length_km=100.0,
+    r_ohm_per_km=0.025,
+    x_ohm_per_km=0.30,
+    b_us_per_km=4.0,
+    name="AC-Line-1"
+)
+
+# Add generator at slack bus
+pf.create_ac_gen(net, bus=ac_slack, p_mw=0.0, v_pu=1.02, name="Slack-Gen")
+
+# Add load at load bus
+pf.create_ac_load(net, bus=ac_load, p_mw=800.0, q_mvar=200.0, name="Main-Load")
+
+# === DC System ===
+# Add DC buses
+dc_rect = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="p",
+                           v_dc_pu=1.0, name="DC-Rectifier")
+dc_inv = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
+                          v_dc_pu=1.0, name="DC-Inverter")
+
+# Add DC line (200 km submarine cable)
+pf.create_dc_line(net,
+    from_bus=dc_rect, to_bus=dc_inv,
+    length_km=200.0,
+    r_ohm_per_km=0.01,
+    name="DC-Cable"
+)
+
+# === VSC Converters ===
+# Rectifier: P control at 600 MW
+pf.create_vsc(net,
+    ac_bus=ac_slack, dc_bus=dc_rect,
+    s_mva=800.0,
+    control_mode="p_q",
+    p_mw=600.0,
+    q_mvar=0.0,
+    loss_a=1.0,
+    r_pu=0.01,
+    x_pu=0.12,
+    name="VSC-Rectifier"
+)
+
+# Inverter: Vdc control at 1.0 pu
+pf.create_vsc(net,
+    ac_bus=ac_load, dc_bus=dc_inv,
+    s_mva=800.0,
+    control_mode="vdc_q",
+    v_dc_pu=1.0,
+    q_mvar=50.0,  # Provide some reactive power support
+    loss_a=1.0,
+    r_pu=0.01,
+    x_pu=0.12,
+    name="VSC-Inverter"
+)
+
+# === Run Power Flow ===
+print("Running power flow...")
+converged = run_pf(net, verbose=True, tol=1e-6)
+
+# === Display Results ===
+print(f"\nConverged: {converged}")
+print("\n=== AC Bus Results ===")
+print(net.res_ac_bus)
+print("\n=== DC Bus Results ===")
+print(net.res_dc_bus)
+print("\n=== VSC Results ===")
+print(net.res_vsc)
+print("\n=== DC Line Results ===")
+print(net.res_dc_line)
+```
+
+### Example 2: Multi-Terminal DC with Droop Control
+
+```python
+"""
+Example 2: 3-Terminal DC Grid with Droop Control
+
+This example demonstrates:
+- Multiple converters sharing power via droop control
+- One Vdc-slack converter for voltage reference
+- Two droop converters for power sharing
+"""
+import acdcpf as pf
+from acdcpf.powerflow import run_pf
+
+net = pf.create_empty_network(name="3-Terminal MTDC", s_base=100.0)
+
+# === AC Systems (3 independent grids) ===
+# Grid A: Generation
+ac_a = pf.create_ac_bus(net, vr_kv=400.0, name="AC-A")
+pf.create_ac_gen(net, bus=ac_a, p_mw=0.0, v_pu=1.0, name="Gen-A")
+pf.create_ac_load(net, bus=ac_a, p_mw=-500.0, q_mvar=0.0, name="Gen-A-equiv")
+
+# Grid B: Load center 1
+ac_b = pf.create_ac_bus(net, vr_kv=400.0, name="AC-B")
+pf.create_ac_gen(net, bus=ac_b, p_mw=0.0, v_pu=1.0, name="Gen-B")
+pf.create_ac_load(net, bus=ac_b, p_mw=300.0, q_mvar=100.0, name="Load-B")
+
+# Grid C: Load center 2
+ac_c = pf.create_ac_bus(net, vr_kv=400.0, name="AC-C")
+pf.create_ac_gen(net, bus=ac_c, p_mw=0.0, v_pu=1.0, name="Gen-C")
+pf.create_ac_load(net, bus=ac_c, p_mw=200.0, q_mvar=50.0, name="Load-C")
+
+# === DC Grid ===
+# DC Bus A: Connected to generation, Vdc slack
+dc_a = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
+                        v_dc_pu=1.0, name="DC-A")
+# DC Bus B: Droop controlled
+dc_b = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="droop",
+                        v_dc_pu=1.0, name="DC-B")
+# DC Bus C: Droop controlled
+dc_c = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="droop",
+                        v_dc_pu=1.0, name="DC-C")
+
+# DC lines (star topology: A is hub)
+pf.create_dc_line(net, dc_a, dc_b, length_km=150.0, r_ohm_per_km=0.012, name="DC-A-B")
+pf.create_dc_line(net, dc_a, dc_c, length_km=200.0, r_ohm_per_km=0.012, name="DC-A-C")
+
+# === VSC Converters ===
+# VSC-A: Vdc control (slack)
+pf.create_vsc(net, ac_bus=ac_a, dc_bus=dc_a, s_mva=600.0,
+              control_mode="vdc_vac", v_dc_pu=1.0, v_ac_pu=1.0,
+              r_pu=0.01, x_pu=0.1, loss_a=0.6, name="VSC-A")
+
+# VSC-B: Droop control (P0=-200 MW, k=0.02 kV/MW)
+pf.create_vsc(net, ac_bus=ac_b, dc_bus=dc_b, s_mva=400.0,
+              control_mode="droop_vac", v_ac_pu=1.0,
+              droop_kv_per_mw=0.02,
+              p_dc_set_mw=-200.0,  # Target inverter mode
+              v_dc_set_pu=1.0,
+              r_pu=0.01, x_pu=0.1, loss_a=0.4, name="VSC-B")
+
+# VSC-C: Droop control (P0=-150 MW, k=0.02 kV/MW)
+pf.create_vsc(net, ac_bus=ac_c, dc_bus=dc_c, s_mva=300.0,
+              control_mode="droop_vac", v_ac_pu=1.0,
+              droop_kv_per_mw=0.02,
+              p_dc_set_mw=-150.0,
+              v_dc_set_pu=1.0,
+              r_pu=0.01, x_pu=0.1, loss_a=0.3, name="VSC-C")
+
+# === Run and analyze ===
+converged = run_pf(net, verbose=True)
+
+print(f"\nConverged: {converged}")
+print("\n=== VSC Power Sharing ===")
+for idx, row in net.vsc.iterrows():
+    p_ac = net.res_vsc.loc[idx, 'p_ac_mw']
+    p_dc = net.res_vsc.loc[idx, 'p_dc_mw']
+    mode = "Rectifier" if p_ac > 0 else "Inverter"
+    print(f"{row['name']}: P_ac={p_ac:.1f} MW, P_dc={p_dc:.1f} MW ({mode})")
+
+print("\n=== DC Voltages ===")
+for idx, row in net.dc_bus.iterrows():
+    v_pu = net.res_dc_bus.loc[idx, 'v_dc_pu']
+    print(f"{row['name']}: V_dc={v_pu:.4f} pu")
+```
+
+### Example 3: Offshore Wind Integration
+
+```python
+"""
+Example 3: Offshore Wind Farm Integration
+
+This example models an offshore wind farm connected to onshore grid via HVDC.
+The offshore converter controls AC voltage for the wind farm.
+"""
+import acdcpf as pf
+from acdcpf.powerflow import run_pf
+
+net = pf.create_empty_network(name="Offshore Wind HVDC", s_base=100.0)
+
+# === Onshore AC System (380 kV) ===
+ac_onshore = pf.create_ac_bus(net, vr_kv=380.0, name="Onshore-PCC")
+pf.create_ac_gen(net, bus=ac_onshore, p_mw=0.0, v_pu=1.0, name="Grid-Equiv")
+pf.create_ac_load(net, bus=ac_onshore, p_mw=1000.0, q_mvar=300.0, name="Onshore-Load")
+
+# === Offshore AC System (66 kV collection) ===
+ac_offshore = pf.create_ac_bus(net, vr_kv=66.0, name="Offshore-Collection")
+# Wind farm as negative load (generation)
+pf.create_ac_load(net, bus=ac_offshore, p_mw=-500.0, q_mvar=0.0, name="Wind-Farm")
+
+# === DC System (+/-320 kV submarine) ===
+dc_offshore = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="p",
+                               v_dc_pu=1.0, name="DC-Offshore")
+dc_onshore = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
+                              v_dc_pu=1.0, name="DC-Onshore")
+
+# Submarine DC cable (100 km)
+pf.create_dc_line(net, dc_offshore, dc_onshore, length_km=100.0,
+                  r_ohm_per_km=0.01, name="Submarine-Cable")
+
+# === VSC Converters ===
+# Offshore: P-Vac control (AC voltage for wind farm, P follows wind)
+# P is 0 because wind injects into the bus, VSC just passes it through
+pf.create_vsc(net, ac_bus=ac_offshore, dc_bus=dc_offshore, s_mva=600.0,
+              control_mode="p_vac",
+              p_mw=0.0,  # Wind injects, VSC balances
+              v_ac_pu=1.0,
+              r_pu=0.01, x_pu=0.15,
+              loss_a=0.6, name="VSC-Offshore")
+
+# Onshore: Vdc-Vac control
+pf.create_vsc(net, ac_bus=ac_onshore, dc_bus=dc_onshore, s_mva=600.0,
+              control_mode="vdc_vac",
+              v_dc_pu=1.0,
+              v_ac_pu=1.0,
+              r_pu=0.01, x_pu=0.15,
+              loss_a=0.6, name="VSC-Onshore")
+
+# === Run power flow ===
+converged = run_pf(net, verbose=True)
+
+print(f"\nConverged: {converged}")
+print("\n=== Power Transfer ===")
+offshore_p = net.res_vsc.loc[0, 'p_ac_mw']
+onshore_p = net.res_vsc.loc[1, 'p_ac_mw']
+losses = offshore_p + onshore_p  # Should be negative (rectifier + inverter)
+cable_loss = net.res_dc_line.loc[0, 'p_loss_mw']
+
+print(f"Offshore VSC: {offshore_p:.1f} MW (rectifying wind power)")
+print(f"Onshore VSC: {onshore_p:.1f} MW (delivering to grid)")
+print(f"Cable losses: {cable_loss:.2f} MW")
+print(f"VSC losses: {abs(offshore_p) - abs(onshore_p) - cable_loss:.2f} MW")
+```
+
+---
+
+## API Reference
+
+### Network Creation
+
+```python
+acdcpf.create_empty_network(
+    name: str = "",
+    s_base: float = 100.0,
+    f_hz: float = 50.0,
+    poles: int = 2
+) -> Network
+```
+
+### Element Creation Functions
+
+| Function | Description |
+|----------|-------------|
+| `create_ac_bus(net, vr_kv, ...)` | Create AC bus |
+| `create_ac_line(net, from_bus, to_bus, ...)` | Create AC transmission line |
+| `create_ac_load(net, bus, p_mw, q_mvar, ...)` | Create AC load |
+| `create_ac_gen(net, bus, p_mw, ...)` | Create AC generator |
+| `create_dc_bus(net, v_base, ...)` | Create DC bus |
+| `create_dc_line(net, from_bus, to_bus, ...)` | Create DC line |
+| `create_dc_load(net, bus, p_mw, ...)` | Create DC load |
+| `create_dc_gen(net, bus, p_mw, ...)` | Create DC generator |
+| `create_vsc(net, ac_bus, dc_bus, ...)` | Create VSC converter |
+| `create_dcdc(net, from_bus, to_bus, ...)` | Create DC-DC converter |
+
+### Power Flow
+
+```python
+acdcpf.run_pf(
+    net: Network,
+    verbose: bool = False,
+    tol: float = 1e-8,
+    max_iter_outer: int = 50,
+    max_iter_inner: int = 30
+) -> bool
+```
+
+### Test Networks
+
+```python
+acdcpf.create_2terminal_hvdc() -> Network
+acdcpf.create_cigre_b4_dc_test_system() -> Network
+```
+
+---
+
+## Appendix A: Sign Conventions
+
+### Power Convention
+
+| Element | Positive Power | Negative Power |
+|---------|----------------|----------------|
+| AC Load | Consumption | Generation |
+| AC Generator | Generation | N/A |
+| VSC (P_s) | Rectifier (AC→DC) | Inverter (DC→AC) |
+| VSC (P_dc) | Into DC grid | Out of DC grid |
+
+### Voltage Convention
+
+- AC voltages are complex phasors: `V = |V| * exp(j*theta)`
+- DC voltages are real positive values
+- Per-unit system based on `s_base` and element rated voltages
+
+---
+
+## Appendix B: Troubleshooting
+
+### Common Issues
+
+**1. Power flow does not converge**
+- Check that each DC grid has exactly one Vdc slack bus
+- Ensure load/generation balance is reasonable
+- Try increasing `max_iter_outer`
+- Check VSC ratings are sufficient for required power transfer
+
+**2. Unexpected power flow direction**
+- Remember: positive P_s means rectifier (AC→DC)
+- Check droop setpoints (P0 and V0)
+- Verify load/generation signs
+
+**3. DC voltage out of range**
+- Adjust droop constants for better voltage regulation
+- Check DC line resistances
+- Consider adding reactive power support at AC buses
+
+---
+
+## References
+
+1. J. Beerten, "Modeling and Control of DC Grids", Chapter 13, KU Leuven, 2013.
+2. T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", ELECTRA No. 270, October 2013.
+3. J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", IEEE Transactions on Power Systems, 2012.
+
+---
+
+*ACDCPF - Hybrid AC/DC Power Flow Library*
+*Version 0.1.0*
+*MIT License*
