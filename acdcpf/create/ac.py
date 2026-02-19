@@ -170,7 +170,7 @@ def create_ac_gen(
     q_mvar : float, optional
         Reactive power in MVAr (default: 0.0)
     v_pu : float, optional
-        Voltage setpoint in pu (for PV buses)
+        Voltage setpoint in pu (for PV and SL buses)
     q_min_mvar : float, optional
         Minimum reactive power in MVAr
     q_max_mvar : float, optional

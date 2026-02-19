@@ -2,10 +2,11 @@
 Build DC bus-branch model.
 """
 
-import numpy as np
+from ..network import Network
 from scipy import sparse
 from typing import Tuple
-from ..network import Network
+
+import numpy as np
 
 
 def build_dc_conductance_matrix(net: Network) -> sparse.csr_matrix:

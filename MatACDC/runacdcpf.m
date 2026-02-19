@@ -71,8 +71,6 @@ end
 if nargin < 4
     %% ac power flow options
     mpopt = mpoption;
-    mpopt(31)=0;    %% default: no ac pf progress printed after each ac pf
-    mpopt(32)=0;    %% default: no ac pf results printed after each ac pf
     if nargin < 3
         macdcopt = macdcoption;   %% use default options
         if nargin<1

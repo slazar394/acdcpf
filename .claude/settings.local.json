@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(pip install:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(rm:*)",
+      "Bash(where:*)",
+      "Bash(py run_case33_ieee.py:*)",
+      "Bash(cat:*)"
     ]
   }
 }

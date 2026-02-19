@@ -2,9 +2,10 @@
 Build converter data for power flow.
 """
 
-import numpy as np
-from typing import Dict, Any
 from ..network import Network
+from typing import Dict, Any
+
+import numpy as np
 
 
 def build_converter_data(net: Network) -> Dict[str, Any]:
@@ -42,7 +43,7 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
     """
     data = {}
 
-    # --- VSC converters ---
+    # VSC converters
     if not net.vsc.empty:
         vsc_is = net.vsc[net.vsc["in_service"] == True]
     else:
@@ -79,7 +80,7 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
             data[key] = np.array([])
         data["vsc_control"] = np.array([], dtype=str)
 
-    # --- DC-DC converters ---
+    # DC-DC converters
     if not net.dcdc.empty:
         dcdc_is = net.dcdc[net.dcdc["in_service"] == True]
     else:

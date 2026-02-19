@@ -7,7 +7,7 @@ between our Network format and pypower's case format.
 
 import numpy as np
 from scipy import sparse
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Dict, List
 from ..network import Network
 
 # pypower imports
@@ -137,7 +137,10 @@ def _net_to_ppc(net: Network, island_buses: List[int],
                 i = ext2int[ac_bus_ext]
                 # VSC convention: P_s > 0 = rectifier (AC→DC) = load on AC side
                 bus_data[i, PD] += p_vsc[vsc_idx]
-                bus_data[i, QD] += q_vsc[vsc_idx]
+                # For Vac-controlling VSCs, Q is handled by the dummy generator
+                # Don't add Q as load to avoid double-counting
+                if ac_bus_ext not in vsc_v_control:
+                    bus_data[i, QD] += q_vsc[vsc_idx]
 
     # --- Build generator matrix ---
     gen_list = []

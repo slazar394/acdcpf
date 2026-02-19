@@ -2,10 +2,9 @@
 Converter creation functions (VSC and DC-DC).
 """
 
-import pandas as pd
-from typing import Optional
 from ..network import Network
 from .ac import _append_row
+from typing import Optional
 
 
 def create_vsc(

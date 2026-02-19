@@ -6,14 +6,14 @@ Iterates between AC power flow (via pypower) and DC power flow (NR)
 with converter coupling equations.
 """
 
-import numpy as np
-from typing import Optional
-from ..network import Network
-from ..build.converters import build_converter_data
+from ..results.process import process_ac_results, process_dc_results, process_converter_results
 from ..build.dc import build_dc_conductance_matrix, build_dc_bus_data
+from ..build.converters import build_converter_data
+from ..network import Network
 from .ac import run_ac_pf
 from .dc import run_dc_pf
-from ..results.process import process_ac_results, process_dc_results, process_converter_results
+
+import numpy as np
 
 
 def run_pf(
@@ -164,11 +164,56 @@ def _get_vsc_v_control(net: Network) -> dict:
 def _extract_vsc_q_from_ac(net: Network, vsc_v_control: dict):
     """After AC PF, extract reactive power for Vac-controlling VSCs."""
     # For Vac-controlling VSCs, Q is determined by the AC power flow.
-    # We read the bus reactive injection from the AC solution.
-    # Since pypower handles this via dummy generators, the Q is in the gen results.
-    # For simplicity, we keep the Q from the previous iteration for Vac-controlling VSCs
-    # and let the outer loop converge.
-    pass
+    # We read the generator reactive power from the pypower solution.
+    # The dummy generators added for Vac control have PMAX=0 and PMIN=0.
+
+    if not hasattr(net, '_ppc_results') or not net._ppc_results:
+        return
+
+    from pypower.idx_gen import GEN_BUS, QG, PG, PMAX, PMIN
+
+    conv_data = net._conv_data
+    if conv_data["n_vsc"] == 0:
+        return
+
+    # For each Vac-controlling VSC, find the generator Q in the pypower results
+    for i, vsc_idx in enumerate(conv_data["vsc_indices"]):
+        control = str(conv_data["vsc_control"][i])
+        if "vac" not in control:
+            continue
+
+        ac_bus = int(conv_data["vsc_ac_bus"][i])
+
+        # Find which island this AC bus belongs to
+        for island_key, ppc_result in net._ppc_results.items():
+            island_buses = list(island_key)
+            if ac_bus not in island_buses:
+                continue
+
+            # Get internal index within this island
+            int_idx = island_buses.index(ac_bus)
+
+            # Find the dummy generator at this bus
+            gen_result = ppc_result.get("gen")
+            if gen_result is None or len(gen_result) == 0:
+                continue
+
+            # Search for the dummy VSC generator at this internal bus index
+            # Dummy generators have PMAX=0 AND PMIN=0 (real generators have PMAX > 0)
+            found_dummy = False
+            for gen_row in gen_result:
+                gen_bus = int(gen_row[GEN_BUS])
+                pmax = gen_row[PMAX]
+                pmin = gen_row[PMIN]
+                if gen_bus == int_idx and pmax == 0.0 and pmin == 0.0:
+                    # This is the dummy generator for VSC voltage control
+                    q_mvar = gen_row[QG]
+                    net._q_s[vsc_idx] = q_mvar
+                    found_dummy = True
+                    break
+
+            # If no dummy generator found (shouldn't happen), don't modify Q
+            break
 
 
 def _initialize_converter_powers(net: Network) -> None:

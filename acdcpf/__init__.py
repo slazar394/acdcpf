@@ -11,6 +11,12 @@ Supports:
 - DC loads and generators
 """
 
+# Numpy 2.x compatibility fix for pypower
+# pypower uses numpy.in1d which was removed in numpy 2.0
+import numpy as np
+if not hasattr(np, 'in1d'):
+    np.in1d = np.isin
+
 __version__ = "0.1.0"
 __author__ = "ACDCPF Contributors"
 

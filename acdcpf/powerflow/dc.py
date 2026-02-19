@@ -5,12 +5,14 @@ Implements the DC network power flow from Beerten Chapter 13,
 Eq. 13.61-13.70. Handles slack, P-controlled, and droop buses.
 """
 
-import numpy as np
-from scipy import sparse
+from ..build.dc import build_dc_conductance_matrix, build_dc_bus_data
+from ..network import Network
+
 from scipy.sparse.linalg import spsolve
 from typing import Tuple
-from ..network import Network
-from ..build.dc import build_dc_conductance_matrix, build_dc_bus_data
+from scipy import sparse
+
+import numpy as np
 
 
 def run_dc_pf(
