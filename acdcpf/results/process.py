@@ -271,7 +271,7 @@ def process_converter_results(net: Network) -> None:
             v_conv = 1.0
             if hasattr(net, '_vsc_internal') and idx in net._vsc_internal:
                 p_loss = net._vsc_internal[idx]['p_loss']
-                v_conv = abs(net._vsc_internal[idx].get('v_f', 1.0))
+                v_conv = abs(net._vsc_internal[idx].get('v_c', 1.0))
 
             # AC current
             vr_kv = float(net.ac_bus.loc[ac_bus, "vr_kv"])

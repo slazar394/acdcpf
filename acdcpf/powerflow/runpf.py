@@ -406,16 +406,20 @@ def _calculate_converter_equations(net: Network) -> None:
         q_s = net._q_s[vsc_idx] / net.s_base  # pu
         s_s = complex(p_s, q_s)
 
-        # Converter impedance parameters
-        r_tf = conv_data["vsc_r"][i]
-        x_tf = conv_data["vsc_x"][i]
+        # Converter impedance parameters (separate transformer and phase reactor)
+        r_tf = conv_data["vsc_r_tf"][i]
+        x_tf = conv_data["vsc_x_tf"][i]
         z_tf = complex(r_tf, x_tf)
+        r_c = conv_data["vsc_r_c"][i]
+        x_c = conv_data["vsc_x_c"][i]
+        z_c = complex(r_c, x_c)
         b_f = conv_data["vsc_b_filter"][i]
 
         # Loss coefficients (per-unit conversion matching MatACDC)
         # LossA in MW, LossB in kV, LossC in Ohm
         s_mva = conv_data["vsc_s_mva"][i]
-        base_kv_ac = float(net.ac_bus.loc[ac_bus, "vr_kv"])
+        loss_base_kv = conv_data["vsc_loss_base_kv"][i]
+        base_kv_ac = loss_base_kv if loss_base_kv > 0 else float(net.ac_bus.loc[ac_bus, "vr_kv"])
         base_ka = net.s_base / (np.sqrt(3) * base_kv_ac)
         loss_a = conv_data["vsc_loss_a"][i] / net.s_base  # MW -> pu
         loss_b = conv_data["vsc_loss_b"][i] * base_ka / net.s_base  # kV -> pu
@@ -427,7 +431,7 @@ def _calculate_converter_equations(net: Network) -> None:
         else:
             i_tf = 0.0
 
-        # Filter bus voltage (Eq. 13.12)
+        # Filter bus voltage using only Z_tf (Eq. 13.12)
         v_f = v_s + i_tf * z_tf
 
         # Filter-side transformer power
@@ -436,21 +440,28 @@ def _calculate_converter_equations(net: Network) -> None:
         # Filter reactive power (Eq. 13.13)
         q_f = -b_f * abs(v_f) ** 2
 
-        # Converter-side apparent power (Eq. 13.14)
+        # Converter-side apparent power at filter bus (Eq. 13.14)
         s_cf = s_sf + 1j * q_f
 
-        # Converter current (Eq. 13.15)
+        # Converter (phase reactor) current (Eq. 13.15)
         if abs(v_f) > 1e-10:
             i_c = np.conj(s_cf / v_f)
         else:
             i_c = 0.0
 
-        # Converter losses (Eq. 13.9)
-        i_c_mag = abs(i_c)
+        # Converter voltage (across phase reactor)
+        v_c = v_f + i_c * z_c
+
+        # Converter-side power (for loss calculation)
+        s_c = v_c * np.conj(i_c)
+        p_c = s_c.real
+        q_c = s_c.imag
+
+        # Converter losses (Eq. 13.9) using converter-side current
+        i_c_mag = np.sqrt(p_c ** 2 + q_c ** 2) / abs(v_c) if abs(v_c) > 1e-10 else abs(i_c)
         p_loss = loss_a + loss_b * i_c_mag + loss_c * i_c_mag ** 2
 
         # DC-side power (Eq. 13.10)
-        p_c = s_cf.real
         p_dc = p_c - p_loss  # Convention: positive P_s = rectifier, P_dc positive into DC grid
 
         # Store in MW
@@ -460,7 +471,7 @@ def _calculate_converter_equations(net: Network) -> None:
         if not hasattr(net, '_vsc_internal'):
             net._vsc_internal = {}
         net._vsc_internal[vsc_idx] = {
-            'v_s': v_s, 'v_f': v_f, 'i_c': i_c,
+            'v_s': v_s, 'v_f': v_f, 'v_c': v_c, 'i_c': i_c,
             'p_loss': p_loss * net.s_base,  # MW
             'p_dc': p_dc * net.s_base,
             'p_c': p_c * net.s_base,
@@ -596,13 +607,17 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
 
     v_s = v_s_mag * np.exp(1j * v_s_ang)
 
-    r_tf = conv_data["vsc_r"][conv_i]
-    x_tf = conv_data["vsc_x"][conv_i]
+    r_tf = conv_data["vsc_r_tf"][conv_i]
+    x_tf = conv_data["vsc_x_tf"][conv_i]
     z_tf = complex(r_tf, x_tf)
+    r_c = conv_data["vsc_r_c"][conv_i]
+    x_c = conv_data["vsc_x_c"][conv_i]
+    z_c = complex(r_c, x_c)
     b_f = conv_data["vsc_b_filter"][conv_i]
 
     # Loss coefficients (per-unit conversion matching MatACDC)
-    base_kv_ac = float(net.ac_bus.loc[ac_bus, "vr_kv"])
+    loss_base_kv = conv_data["vsc_loss_base_kv"][conv_i]
+    base_kv_ac = loss_base_kv if loss_base_kv > 0 else float(net.ac_bus.loc[ac_bus, "vr_kv"])
     base_ka = net.s_base / (np.sqrt(3) * base_kv_ac)
     loss_a = conv_data["vsc_loss_a"][conv_i] / net.s_base
     loss_b = conv_data["vsc_loss_b"][conv_i] * base_ka / net.s_base
@@ -631,17 +646,22 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
         else:
             i_c = 0.0
 
-        i_c_mag = abs(i_c)
+        # Converter voltage and power (2-impedance model)
+        v_c = v_f + i_c * z_c
+        s_c = v_c * np.conj(i_c)
+        p_c = s_c.real
+        q_c = s_c.imag
+
+        # Converter losses using converter-side current
+        i_c_mag = np.sqrt(p_c ** 2 + q_c ** 2) / abs(v_c) if abs(v_c) > 1e-10 else abs(i_c)
         p_loss = loss_a + loss_b * i_c_mag + loss_c * i_c_mag ** 2
-        p_c = s_cf.real
 
         # P_DC = P_c - P_loss => P_c = P_DC + P_loss
         p_c_target = p_dc_pu + p_loss
 
-        # Update P_s: P_c = Re(S_sf) ≠ P_s due to transformer losses
-        # Need to find P_s such that Re(S_sf) = p_c_target
-        # Approximate: P_s ≈ p_c_target + R * |I_tf|² (transformer losses)
-        p_s_new = p_c_target + r_tf * abs(i_tf) ** 2
+        # Update P_s: account for losses through both impedances
+        # P_s ≈ p_c_target + R_c * |I_c|² + R_tf * |I_tf|²
+        p_s_new = p_c_target + r_c * abs(i_c) ** 2 + r_tf * abs(i_tf) ** 2
 
         if abs(p_s_new - p_s_pu) < 1e-10:
             break

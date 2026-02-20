@@ -36,7 +36,7 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
         - 'vsc_p_dc_set': droop P setpoints (MW)
         - 'vsc_v_dc_droop_set': droop Vdc setpoints (pu)
         - 'vsc_loss_a/b/c': loss coefficients
-        - 'vsc_r/x/b_filter': impedance parameters (pu)
+        - 'vsc_r_tf/x_tf/r_c/x_c/b_filter': impedance parameters (pu)
         - 'vsc_s_mva': rated power (MVA)
         - 'n_dcdc': number of in-service DC-DC converters
         - 'dcdc_indices': indices of in-service DC-DC converters
@@ -67,16 +67,20 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
         data["vsc_loss_a"] = vsc_is["loss_a"].astype(float).to_numpy()
         data["vsc_loss_b"] = vsc_is["loss_b"].astype(float).to_numpy()
         data["vsc_loss_c"] = vsc_is["loss_c"].astype(float).to_numpy()
-        data["vsc_r"] = vsc_is["r_pu"].astype(float).to_numpy()
-        data["vsc_x"] = vsc_is["x_pu"].astype(float).to_numpy()
+        data["vsc_r_tf"] = vsc_is["r_tf_pu"].astype(float).to_numpy()
+        data["vsc_x_tf"] = vsc_is["x_tf_pu"].astype(float).to_numpy()
+        data["vsc_r_c"] = vsc_is["r_c_pu"].astype(float).to_numpy()
+        data["vsc_x_c"] = vsc_is["x_c_pu"].astype(float).to_numpy()
         data["vsc_b_filter"] = vsc_is["b_filter_pu"].astype(float).to_numpy()
         data["vsc_s_mva"] = vsc_is["s_mva"].astype(float).to_numpy()
+        data["vsc_loss_base_kv"] = vsc_is["loss_base_kv"].to_numpy(dtype=float, na_value=0.0)
     else:
         for key in ["vsc_ac_bus", "vsc_dc_bus", "vsc_p_set", "vsc_q_set",
                      "vsc_v_ac_set", "vsc_v_dc_set", "vsc_droop_k",
                      "vsc_p_dc_set", "vsc_v_dc_droop_set",
                      "vsc_loss_a", "vsc_loss_b", "vsc_loss_c",
-                     "vsc_r", "vsc_x", "vsc_b_filter", "vsc_s_mva"]:
+                     "vsc_r_tf", "vsc_x_tf", "vsc_r_c", "vsc_x_c",
+                     "vsc_b_filter", "vsc_s_mva", "vsc_loss_base_kv"]:
             data[key] = np.array([])
         data["vsc_control"] = np.array([], dtype=str)
 

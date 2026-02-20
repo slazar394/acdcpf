@@ -421,8 +421,8 @@ def create_case24_ieee_rts_mtdc() -> Network:
             q_mvar=-q_mvar,  # Negated
             v_dc_pu=1.0 if type_dc == 2 else None,
             v_ac_pu=1.0 if type_ac == 2 else None,
-            r_pu=0.001 + 0.0001,
-            x_pu=0.10 + xc,
+            r_tf_pu=0.001, x_tf_pu=0.10,
+            r_c_pu=0.0001, x_c_pu=xc,
             b_filter_pu=0.09 if dc_bus <= 3 else 0.0,  # Filter only for grid 1
             loss_a=1.103 if dc_bus <= 3 else 2.206,
             loss_b=0.887 if dc_bus <= 3 else 1.8,

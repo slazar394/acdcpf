@@ -194,8 +194,8 @@ def create_case5_stagg_hvdc_ptp() -> Network:
         control_mode="p_q",  # P,Q fixed on AC side
         p_mw=60.0,     # Rectifier: absorbing 60 MW from AC
         q_mvar=40.0,   # Absorbing 40 MVAr from AC
-        r_pu=0.0015 + 0.0001,  # rtf + rc
-        x_pu=0.1121 + 0.16428,  # xtf + xc
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
@@ -216,8 +216,8 @@ def create_case5_stagg_hvdc_ptp() -> Network:
         q_mvar=0.0,  # Not used - determined by Vac control
         v_ac_pu=1.0,
         v_dc_pu=1.0,  # DC voltage setpoint
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,

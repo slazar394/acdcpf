@@ -60,12 +60,14 @@ def create_2terminal_hvdc() -> Network:
     create_vsc(net, ac_bus=ac_b0, dc_bus=dc_b0, s_mva=600.0,
                control_mode="vdc_q", q_mvar=0.0, v_dc_pu=1.0,
                loss_a=1.1033, loss_b=0.0, loss_c=0.0,
-               r_pu=0.01, x_pu=0.1, name="VSC-Slack")
+               r_tf_pu=0.005, x_tf_pu=0.05,
+               r_c_pu=0.005, x_c_pu=0.05, name="VSC-Slack")
 
     # VSC 1: P + Q control at DC bus 1
     create_vsc(net, ac_bus=ac_b1, dc_bus=dc_b1, s_mva=600.0,
                control_mode="p_q", p_mw=500.0, q_mvar=0.0,
                loss_a=1.1033, loss_b=0.0, loss_c=0.0,
-               r_pu=0.01, x_pu=0.1, name="VSC-P")
+               r_tf_pu=0.005, x_tf_pu=0.05,
+               r_c_pu=0.005, x_c_pu=0.05, name="VSC-P")
 
     return net

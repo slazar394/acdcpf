@@ -7,7 +7,10 @@
       "Bash(rm:*)",
       "Bash(where:*)",
       "Bash(py run_case33_ieee.py:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(echo:*)",
+      "Bash(.venv/Scripts/python:*)"
     ]
   }
 }

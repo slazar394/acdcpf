@@ -23,9 +23,12 @@ def create_vsc(
     loss_a: float = 0.0,
     loss_b: float = 0.0,
     loss_c: float = 0.0,
-    r_pu: float = 0.01,
-    x_pu: float = 0.1,
+    r_tf_pu: float = 0.01,
+    x_tf_pu: float = 0.1,
+    r_c_pu: float = 0.0,
+    x_c_pu: float = 0.0,
     b_filter_pu: float = 0.0,
+    loss_base_kv: Optional[float] = None,
     name: str = "",
     in_service: bool = True,
 ) -> int:
@@ -70,12 +73,19 @@ def create_vsc(
         Linear loss coefficient in kV (default: 0.0)
     loss_c : float, optional
         Quadratic loss coefficient in Ohm (default: 0.0)
-    r_pu : float, optional
-        Converter resistance in pu (default: 0.01)
-    x_pu : float, optional
-        Converter reactance in pu (default: 0.1)
+    r_tf_pu : float, optional
+        Transformer resistance in pu (default: 0.01)
+    x_tf_pu : float, optional
+        Transformer reactance in pu (default: 0.1)
+    r_c_pu : float, optional
+        Phase reactor resistance in pu (default: 0.0)
+    x_c_pu : float, optional
+        Phase reactor reactance in pu (default: 0.0)
     b_filter_pu : float, optional
         Filter susceptance in pu (default: 0.0)
+    loss_base_kv : float, optional
+        AC base voltage for loss calculation in kV (default: None, uses bus voltage).
+        Matches MatACDC's basekVac field in convdc.
     name : str, optional
         Converter name
     in_service : bool, optional
@@ -102,9 +112,12 @@ def create_vsc(
         "loss_a": loss_a,
         "loss_b": loss_b,
         "loss_c": loss_c,
-        "r_pu": r_pu,
-        "x_pu": x_pu,
+        "r_tf_pu": r_tf_pu,
+        "x_tf_pu": x_tf_pu,
+        "r_c_pu": r_c_pu,
+        "x_c_pu": x_c_pu,
         "b_filter_pu": b_filter_pu,
+        "loss_base_kv": loss_base_kv,
         "in_service": in_service,
     })
     return idx

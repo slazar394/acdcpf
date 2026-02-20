@@ -18,8 +18,7 @@ from acdcpf.networks import (
     create_case5_stagg_mtdc_droop,
     create_case24_ieee_rts_mtdc,
     create_case33_ieee,
-    create_2terminal_hvdc,
-    create_cigre_b4_dc_test_system,
+    create_2terminal_hvdc
 )
 from acdcpf.powerflow import run_pf
 
@@ -185,7 +184,7 @@ class TestAllCasesConvergence:
         ("case5_stagg_mtdc_slack", create_case5_stagg_mtdc_slack),
         ("case5_stagg_mtdc_droop", create_case5_stagg_mtdc_droop),
         ("case33_ieee", create_case33_ieee),
-        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc),
+        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc)
     ])
     def case_data(self, request):
         """Parameterized fixture for all test cases."""
@@ -320,7 +319,7 @@ class TestMatACDCComparison:
         ("case5_stagg_hvdc_ptp", create_case5_stagg_hvdc_ptp),
         ("case5_stagg_mtdc_slack", create_case5_stagg_mtdc_slack),
         ("case5_stagg_mtdc_droop", create_case5_stagg_mtdc_droop),
-        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc),
+        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc)
     ])
     def test_ac_voltage_vs_matacdc(self, matacdc_results_dir, case_name, create_func):
         """Compare AC bus voltages against MatACDC."""
@@ -341,7 +340,7 @@ class TestMatACDCComparison:
         ("case5_stagg_hvdc_ptp", create_case5_stagg_hvdc_ptp),
         ("case5_stagg_mtdc_slack", create_case5_stagg_mtdc_slack),
         ("case5_stagg_mtdc_droop", create_case5_stagg_mtdc_droop),
-        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc),
+        ("case24_ieee_rts_mtdc", create_case24_ieee_rts_mtdc)
     ])
     def test_dc_voltage_vs_matacdc(self, matacdc_results_dir, case_name, create_func):
         """Compare DC bus voltages against MatACDC."""
@@ -372,8 +371,7 @@ def run_all_cases_summary():
         ("Case5 Stagg MTDC Slack", create_case5_stagg_mtdc_slack),
         ("Case5 Stagg MTDC Droop", create_case5_stagg_mtdc_droop),
         ("Case33 IEEE", create_case33_ieee),
-        ("Case24 IEEE RTS MTDC", create_case24_ieee_rts_mtdc),
-        ("CIGRE B4", create_cigre_b4_dc_test_system),
+        ("Case24 IEEE RTS MTDC", create_case24_ieee_rts_mtdc)
     ]
 
     print("=" * 70)

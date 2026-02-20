@@ -172,8 +172,8 @@ def create_case5_stagg_mtdc_slack() -> Network:
         control_mode="p_q",  # P,Q fixed on AC side
         p_mw=60.0,     # Rectifier: absorbing from AC
         q_mvar=40.0,
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
@@ -193,8 +193,8 @@ def create_case5_stagg_mtdc_slack() -> Network:
         q_mvar=0.0,
         v_ac_pu=1.0,
         v_dc_pu=1.0,
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
@@ -213,8 +213,8 @@ def create_case5_stagg_mtdc_slack() -> Network:
         control_mode="p_q",  # P,Q fixed on AC side
         p_mw=-35.0,    # Inverter: injecting to AC
         q_mvar=-5.0,
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,

@@ -3,7 +3,7 @@
   "ac_case":"case5_stagg",
   "dc_case":"case5_stagg_MTDCslack",
   "converged":1,
-  "time_seconds":0.0674572,
+  "time_seconds":0.0612884,
   "ac_bus":{
   "bus_i":[1,2,3,4,5],
   "vm_pu":[1.06,1,1,0.99601768864365126,0.9907594904361946],

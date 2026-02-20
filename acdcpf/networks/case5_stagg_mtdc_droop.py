@@ -165,8 +165,8 @@ def create_case5_stagg_mtdc_droop() -> Network:
         droop_kv_per_mw=0.0050,   # kV/MW
         p_dc_set_mw=-58.6274,     # DC power setpoint
         v_dc_set_pu=1.0079,       # DC voltage setpoint
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
@@ -189,8 +189,8 @@ def create_case5_stagg_mtdc_droop() -> Network:
         droop_kv_per_mw=0.0070,
         p_dc_set_mw=21.9013,
         v_dc_set_pu=1.0000,
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
@@ -212,8 +212,8 @@ def create_case5_stagg_mtdc_droop() -> Network:
         droop_kv_per_mw=0.0050,
         p_dc_set_mw=36.1856,
         v_dc_set_pu=0.9978,
-        r_pu=0.0015 + 0.0001,
-        x_pu=0.1121 + 0.16428,
+        r_tf_pu=0.0015, x_tf_pu=0.1121,
+        r_c_pu=0.0001, x_c_pu=0.16428,
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,

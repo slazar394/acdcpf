@@ -3,7 +3,7 @@
   "ac_case":"case5_stagg",
   "dc_case":"case5_stagg_HVDCptp",
   "converged":1,
-  "time_seconds":0.1914746,
+  "time_seconds":0.0386241,
   "ac_bus":{
   "bus_i":[1,2,3,4,5],
   "vm_pu":[1.06,1,1,0.994472487543201,0.97549772541338],
