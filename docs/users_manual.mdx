@@ -117,8 +117,9 @@ from acdcpf.powerflow import run_pf
 net = pf.create_2terminal_hvdc()
 converged = run_pf(net, verbose=True)
 
-# Load CIGRE B4 DC grid test system
-net = pf.create_cigre_b4_dc_test_system()
+# Load a MatACDC validation case
+from acdcpf.networks import create_case5_stagg_mtdc_droop
+net = create_case5_stagg_mtdc_droop()
 converged = run_pf(net, verbose=True)
 ```
 
@@ -957,65 +958,6 @@ AC System                         DC System
 - VSC-0: Vdc control at 1.0 pu
 - VSC-1: P control at 500 MW (rectifier)
 
-### CIGRE B4 DC Grid Test System
-
-The comprehensive CIGRE B4 DC grid test system for advanced studies:
-
-```python
-from acdcpf import create_cigre_b4_dc_test_system
-
-net = create_cigre_b4_dc_test_system()
-```
-
-**System Overview:**
-
-The CIGRE B4 DC grid test system consists of:
-
-- **2 onshore AC systems** (A and B) at 380 kV
-- **5 offshore AC systems** (C, D, E, F) at 145 kV
-- **3 independent DC grids:**
-  - DCS1: Symmetric monopole +/-200 kV
-  - DCS2: Symmetric monopole +/-200 kV
-  - DCS3: Bipole +/-400 kV
-- **13 VSC converters** with various control modes
-- **2 DC-DC converters** interconnecting different voltage levels
-
-**Network Topology:**
-
-```
-                    Onshore A (380 kV)
-                    ┌─────────────────┐
-                    │  [Slack A0]     │
-                    │      │          │
-                    │    Ba-A0 ═══════│══ parallel lines
-                    │      ║         │
-                    │    Ba-A1 ──────┼── Cm-A1 (DCS1, Vdc)
-                    │      │         │   Cb-A1 (DCS3, Vdc-Vac)
-                    │  [Gen -1000MW] │
-                    └─────────────────┘
-
-                    Offshore C (145 kV)
-                    ┌─────────────────┐
-                    │    Ba-C1 ──────┼── Cm-C1 (DCS1, P-Vac)
-                    │      │         │
-                    │    Ba-C2 ──────┼── Cb-C2 (DCS3, P-Vac)
-                    │      │         │
-                    │  [Wind -1000MW]│
-                    └─────────────────┘
-
-                    ... (additional systems B, D, E, F)
-```
-
-**Key Features:**
-- Multi-terminal DC configuration
-- Droop control for autonomous power sharing
-- DC-DC converters for voltage transformation
-- Offshore wind integration
-- Onshore load centers
-
-**Reference:**
-T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", ELECTRA No. 270, October 2013.
-
 ### MatACDC Validation Cases
 
 These cases are ported from the MatACDC MATLAB toolbox and validated against its reference results:
@@ -1347,7 +1289,6 @@ acdcpf.run_pf(
 ```python
 # Simple test cases (available from acdcpf top-level)
 acdcpf.create_2terminal_hvdc() -> Network
-acdcpf.create_cigre_b4_dc_test_system() -> Network
 
 # MatACDC validation cases (from acdcpf.networks)
 from acdcpf.networks import (
@@ -1406,8 +1347,7 @@ from acdcpf.networks import (
 ## References
 
 1. J. Beerten, "Modeling and Control of DC Grids", Chapter 13, KU Leuven, 2013.
-2. T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", ELECTRA No. 270, October 2013.
-3. J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", IEEE Transactions on Power Systems, 2012.
+2. J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", IEEE Transactions on Power Systems, 2012.
 
 ---
 

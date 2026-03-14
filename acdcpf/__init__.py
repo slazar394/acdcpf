@@ -34,7 +34,7 @@ from .create import (
     create_dcdc,
 )
 from .powerflow import run_pf
-from .networks import create_cigre_b4_dc_test_system, create_2terminal_hvdc
+from .networks import create_2terminal_hvdc
 
 __all__ = [
     "__version__",
@@ -57,6 +57,5 @@ __all__ = [
     # Power flow
     "run_pf",
     # Test networks
-    "create_cigre_b4_dc_test_system",
     "create_2terminal_hvdc",
 ]

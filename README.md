@@ -11,7 +11,7 @@ A Python library for steady-state power flow analysis in hybrid AC/DC networks, 
 - Multiple independent DC grids with proper voltage control coordination
 - DC loads and generators
 - Newton-Raphson solvers for both AC and DC sub-problems
-- Built-in test networks (CIGRE B4, IEEE 33-bus, IEEE 24-bus RTS, 5-bus Stagg)
+- Built-in test networks (IEEE 33-bus, IEEE 24-bus RTS, 5-bus Stagg)
 
 ## Installation
 
@@ -33,7 +33,8 @@ pip install numpy scipy pandas pypower
 import acdcpf as pf
 
 # Load a built-in test network
-net = pf.create_cigre_b4_dc_test_system()
+from acdcpf.networks import create_case5_stagg_hvdc_ptp
+net = create_case5_stagg_hvdc_ptp()
 
 # Run power flow
 converged = pf.run_pf(net, verbose=True)
@@ -84,7 +85,6 @@ converged = pf.run_pf(net, verbose=True)
 | `create_case33_ieee()` | IEEE 33-bus distribution with MTDC |
 | `create_case33_ieee_ext()` | IEEE 33-bus extended with DC-DC converters |
 | `create_case24_ieee_rts_mtdc()` | IEEE 24-bus RTS (3 zones) with MTDC |
-| `create_cigre_b4_dc_test_system()` | CIGRE B4 DC Grid Test System |
 
 ## Documentation
 
@@ -124,7 +124,6 @@ acdcpf/
 ## References
 
 1. J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", *IEEE Trans. Power Systems*, vol. 27, no. 1, pp. 428-436, 2012.
-2. T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", *ELECTRA* No. 270, October 2013.
 
 ## License
 

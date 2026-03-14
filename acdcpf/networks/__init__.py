@@ -5,9 +5,9 @@ Available networks:
 - Simple test cases:
   - create_2terminal_hvdc: Simple 2-terminal HVDC test system
 
-- IEEE/CIGRE standard cases:
+- IEEE standard cases:
   - create_case33_ieee: IEEE 33-bus distribution system with MTDC
-  - create_cigre_b4_dc_test_system: CIGRE B4 DC Grid Test System
+  - create_case33_ieee_ext: IEEE 33-bus extended with DC-DC converters
 
 - MatACDC compatible cases (for validation):
   - create_case5_stagg_hvdc_ptp: 5-bus Stagg with point-to-point HVDC
@@ -16,7 +16,6 @@ Available networks:
   - create_case24_ieee_rts_mtdc: IEEE 24-bus RTS (3 zones) with MTDC
 """
 
-from .cigre_b4 import create_cigre_b4_dc_test_system
 from .simple import create_2terminal_hvdc
 from .case33_ieee import create_case33_ieee
 from .case33_ieee_ext import create_case33_ieee_ext
@@ -28,10 +27,9 @@ from .case24_ieee_rts_mtdc import create_case24_ieee_rts_mtdc
 __all__ = [
     # Simple test cases
     "create_2terminal_hvdc",
-    # IEEE/CIGRE standard cases
+    # IEEE standard cases
     "create_case33_ieee",
     "create_case33_ieee_ext",
-    "create_cigre_b4_dc_test_system",
     # MatACDC compatible cases
     "create_case5_stagg_hvdc_ptp",
     "create_case5_stagg_mtdc_slack",
