@@ -145,10 +145,23 @@ def run_pf(
 
 
 def _get_vsc_v_control(net: Network) -> dict:
-    """Get mapping of AC bus -> voltage setpoint for Vac-controlling VSCs."""
+    """Get mapping of AC bus -> voltage setpoint for Vac-controlling VSCs.
+
+    Resolves conflicts where a generator already controls voltage at the
+    same bus (matching MatACDC behaviour: VSC Vac control is removed and
+    Q is set to 0 when a generator is present on the same bus).
+    """
     vsc_v_control = {}
     if net.vsc.empty:
         return vsc_v_control
+
+    # Determine which AC buses already have generators controlling voltage
+    gen_pv_buses = set()
+    if not net.ac_gen.empty:
+        for _, gen in net.ac_gen[net.ac_gen["in_service"] == True].iterrows():
+            v_pu = gen.get("v_pu")
+            if v_pu is not None and not (isinstance(v_pu, float) and np.isnan(v_pu)):
+                gen_pv_buses.add(int(gen["bus"]))
 
     conv_data = net._conv_data
     for i, vsc_idx in enumerate(conv_data["vsc_indices"]):
@@ -157,7 +170,12 @@ def _get_vsc_v_control(net: Network) -> dict:
             ac_bus = int(conv_data["vsc_ac_bus"][i])
             v_set = float(conv_data["vsc_v_ac_set"][i])
             if not np.isnan(v_set):
-                vsc_v_control[ac_bus] = v_set
+                if ac_bus in gen_pv_buses:
+                    # Conflict: generator already controls V at this bus.
+                    # Remove VSC Vac control and set Q=0 (MatACDC behaviour).
+                    net._q_s[vsc_idx] = 0.0
+                else:
+                    vsc_v_control[ac_bus] = v_set
     return vsc_v_control
 
 
@@ -207,8 +225,10 @@ def _extract_vsc_q_from_ac(net: Network, vsc_v_control: dict):
                 pmin = gen_row[PMIN]
                 if gen_bus == int_idx and pmax == 0.0 and pmin == 0.0:
                     # This is the dummy generator for VSC voltage control
+                    # QG is in generator convention (positive = injecting Q).
+                    # Negate to match acdcpf load convention (positive = consuming Q).
                     q_mvar = gen_row[QG]
-                    net._q_s[vsc_idx] = q_mvar
+                    net._q_s[vsc_idx] = -q_mvar
                     found_dummy = True
                     break
 
@@ -355,10 +375,13 @@ def _init_slack_power_per_grid(net: Network):
             if int(row["dc_grid"]) == grid_id and row["in_service"]:
                 grid_buses.add(idx)
 
-        # DC loads (consumption)
+        # DC loads (consumption) -- only constant-power loads affect the
+        # explicit power sum; constant-impedance loads are inside G_dc.
         if not net.dc_load.empty:
             for _, load in net.dc_load[net.dc_load["in_service"] == True].iterrows():
                 if int(load["bus"]) in grid_buses:
+                    if str(load.get("load_type", "constant_power")) == "constant_impedance":
+                        continue
                     dc_grids[grid_id]["p_sum"] -= float(load["p_mw"])
 
         # DC generators (injection)
@@ -409,21 +432,25 @@ def _calculate_converter_equations(net: Network) -> None:
         # Converter impedance parameters (separate transformer and phase reactor)
         r_tf = conv_data["vsc_r_tf"][i]
         x_tf = conv_data["vsc_x_tf"][i]
-        z_tf = complex(r_tf, x_tf)
         r_c = conv_data["vsc_r_c"][i]
         x_c = conv_data["vsc_x_c"][i]
-        z_c = complex(r_c, x_c)
         b_f = conv_data["vsc_b_filter"][i]
 
         # Loss coefficients (per-unit conversion matching MatACDC)
         # LossA in MW, LossB in kV, LossC in Ohm
-        s_mva = conv_data["vsc_s_mva"][i]
         loss_base_kv = conv_data["vsc_loss_base_kv"][i]
         base_kv_ac = loss_base_kv if loss_base_kv > 0 else float(net.ac_bus.loc[ac_bus, "vr_kv"])
+
+        # Impedances are already in per-unit on the system base (baseMVA).
+        # MatACDC does NOT scale impedances by voltage ratio; basekVac is
+        # used only for loss coefficient conversion.
+        z_tf = complex(r_tf, x_tf)
+        z_c = complex(r_c, x_c)
         base_ka = net.s_base / (np.sqrt(3) * base_kv_ac)
         loss_a = conv_data["vsc_loss_a"][i] / net.s_base  # MW -> pu
         loss_b = conv_data["vsc_loss_b"][i] * base_ka / net.s_base  # kV -> pu
-        loss_c = conv_data["vsc_loss_c"][i] * base_ka ** 2 / net.s_base  # Ohm -> pu
+        loss_c_rec = conv_data["vsc_loss_c"][i] * base_ka ** 2 / net.s_base  # Ohm -> pu
+        loss_c_inv = conv_data["vsc_loss_c_inv"][i] * base_ka ** 2 / net.s_base
 
         # Transformer current (Eq. 13.11)
         if abs(v_s) > 1e-10:
@@ -431,8 +458,9 @@ def _calculate_converter_equations(net: Network) -> None:
         else:
             i_tf = 0.0
 
-        # Filter bus voltage using only Z_tf (Eq. 13.12)
-        v_f = v_s + i_tf * z_tf
+        # Filter bus voltage (Eq. 13.26: U_f = U_s + Z_tf * I_s_beerten)
+        # Code's I_tf = -I_s_beerten (opposite convention), so V_f = V_s - I_tf * Z_tf
+        v_f = v_s - i_tf * z_tf
 
         # Filter-side transformer power
         s_sf = v_f * np.conj(i_tf)
@@ -449,8 +477,8 @@ def _calculate_converter_equations(net: Network) -> None:
         else:
             i_c = 0.0
 
-        # Converter voltage (across phase reactor)
-        v_c = v_f + i_c * z_c
+        # Converter voltage (across phase reactor), same sign convention
+        v_c = v_f - i_c * z_c
 
         # Converter-side power (for loss calculation)
         s_c = v_c * np.conj(i_c)
@@ -458,8 +486,13 @@ def _calculate_converter_equations(net: Network) -> None:
         q_c = s_c.imag
 
         # Converter losses (Eq. 13.9) using converter-side current
+        # Sign-dependent quadratic coefficient (MatACDC: LossCrec when Pc>0, LossCinv when Pc<0)
+        # In acdcpf load convention signs are opposite, so:
+        #   p_c > 0 (acdcpf rectifier) → MatACDC Pc < 0 → LossCinv
+        #   p_c < 0 (acdcpf inverter) → MatACDC Pc > 0 → LossCrec
         i_c_mag = np.sqrt(p_c ** 2 + q_c ** 2) / abs(v_c) if abs(v_c) > 1e-10 else abs(i_c)
-        p_loss = loss_a + loss_b * i_c_mag + loss_c * i_c_mag ** 2
+        loss_c_used = loss_c_inv if p_c > 0 else loss_c_rec
+        p_loss = loss_a + loss_b * i_c_mag + loss_c_used * i_c_mag ** 2
 
         # DC-side power (Eq. 13.10)
         p_dc = p_c - p_loss  # Convention: positive P_s = rectifier, P_dc positive into DC grid
@@ -576,7 +609,20 @@ def _update_slack_droop_powers(net: Network) -> None:
             v_dc_arr = net._v_dc
             pol = float(net.pol)
             p_calc_pu = pol * v_dc_arr[dc_bus] * np.dot(G_dense[dc_bus, :], v_dc_arr)
-            net._p_dc_vsc[vsc_idx] = p_calc_pu * net.s_base
+            # p_calc is the total net injection: p_vsc + gen - load.
+            # Extract the VSC portion: p_vsc = p_calc + load - gen
+            p_load_mw = 0.0
+            p_gen_mw = 0.0
+            if not net.dc_load.empty:
+                bus_loads = net.dc_load[(net.dc_load["bus"] == dc_bus) & (net.dc_load["in_service"] == True)]
+                for _, ld in bus_loads.iterrows():
+                    if str(ld.get("load_type", "constant_power")) == "constant_impedance":
+                        continue
+                    p_load_mw += float(ld["p_mw"])
+            if not net.dc_gen.empty:
+                bus_gens = net.dc_gen[(net.dc_gen["bus"] == dc_bus) & (net.dc_gen["in_service"] == True)]
+                p_gen_mw = bus_gens["p_mw"].astype(float).sum()
+            net._p_dc_vsc[vsc_idx] = p_calc_pu * net.s_base + p_load_mw - p_gen_mw
 
         # Backward solve: given P_DC, find P_s
         # Inner NR iteration (Eq. 13.71-13.76)
@@ -609,19 +655,21 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
 
     r_tf = conv_data["vsc_r_tf"][conv_i]
     x_tf = conv_data["vsc_x_tf"][conv_i]
-    z_tf = complex(r_tf, x_tf)
     r_c = conv_data["vsc_r_c"][conv_i]
     x_c = conv_data["vsc_x_c"][conv_i]
-    z_c = complex(r_c, x_c)
     b_f = conv_data["vsc_b_filter"][conv_i]
 
     # Loss coefficients (per-unit conversion matching MatACDC)
     loss_base_kv = conv_data["vsc_loss_base_kv"][conv_i]
     base_kv_ac = loss_base_kv if loss_base_kv > 0 else float(net.ac_bus.loc[ac_bus, "vr_kv"])
+
+    z_tf = complex(r_tf, x_tf)
+    z_c = complex(r_c, x_c)
     base_ka = net.s_base / (np.sqrt(3) * base_kv_ac)
     loss_a = conv_data["vsc_loss_a"][conv_i] / net.s_base
     loss_b = conv_data["vsc_loss_b"][conv_i] * base_ka / net.s_base
-    loss_c = conv_data["vsc_loss_c"][conv_i] * base_ka ** 2 / net.s_base
+    loss_c_rec = conv_data["vsc_loss_c"][conv_i] * base_ka ** 2 / net.s_base
+    loss_c_inv = conv_data["vsc_loss_c_inv"][conv_i] * base_ka ** 2 / net.s_base
 
     q_s = net._q_s[vsc_idx] / net.s_base
     p_dc_pu = p_dc_mw / net.s_base
@@ -636,7 +684,7 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
         else:
             i_tf = 0.0
 
-        v_f = v_s + i_tf * z_tf
+        v_f = v_s - i_tf * z_tf
         s_sf = v_f * np.conj(i_tf)
         q_f = -b_f * abs(v_f) ** 2
         s_cf = s_sf + 1j * q_f
@@ -647,20 +695,21 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
             i_c = 0.0
 
         # Converter voltage and power (2-impedance model)
-        v_c = v_f + i_c * z_c
+        v_c = v_f - i_c * z_c
         s_c = v_c * np.conj(i_c)
         p_c = s_c.real
         q_c = s_c.imag
 
         # Converter losses using converter-side current
         i_c_mag = np.sqrt(p_c ** 2 + q_c ** 2) / abs(v_c) if abs(v_c) > 1e-10 else abs(i_c)
-        p_loss = loss_a + loss_b * i_c_mag + loss_c * i_c_mag ** 2
+        loss_c_used = loss_c_inv if p_c > 0 else loss_c_rec
+        p_loss = loss_a + loss_b * i_c_mag + loss_c_used * i_c_mag ** 2
 
         # P_DC = P_c - P_loss => P_c = P_DC + P_loss
         p_c_target = p_dc_pu + p_loss
 
-        # Update P_s: account for losses through both impedances
-        # P_s ≈ p_c_target + R_c * |I_c|² + R_tf * |I_tf|²
+        # With corrected V signs: P_c = P_s - R_tf*|I_tf|² - R_c*|I_c|²
+        # So P_s = P_c + R losses (add back impedance losses)
         p_s_new = p_c_target + r_c * abs(i_c) ** 2 + r_tf * abs(i_tf) ** 2
 
         if abs(p_s_new - p_s_pu) < 1e-10:

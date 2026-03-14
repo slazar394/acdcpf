@@ -5,10 +5,11 @@ With pypower backend, Y_bus construction is handled internally by pypower.
 These functions are kept as optional utilities.
 """
 
-import numpy as np
-from scipy import sparse
-from typing import Tuple
 from ..network import Network
+from typing import Tuple
+from scipy import sparse
+
+import numpy as np
 
 
 def build_ac_admittance_matrix(net: Network) -> sparse.csr_matrix:

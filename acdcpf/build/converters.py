@@ -67,6 +67,10 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
         data["vsc_loss_a"] = vsc_is["loss_a"].astype(float).to_numpy()
         data["vsc_loss_b"] = vsc_is["loss_b"].astype(float).to_numpy()
         data["vsc_loss_c"] = vsc_is["loss_c"].astype(float).to_numpy()
+        if "loss_c_inv" in vsc_is.columns:
+            data["vsc_loss_c_inv"] = vsc_is["loss_c_inv"].astype(float).to_numpy()
+        else:
+            data["vsc_loss_c_inv"] = data["vsc_loss_c"].copy()
         data["vsc_r_tf"] = vsc_is["r_tf_pu"].astype(float).to_numpy()
         data["vsc_x_tf"] = vsc_is["x_tf_pu"].astype(float).to_numpy()
         data["vsc_r_c"] = vsc_is["r_c_pu"].astype(float).to_numpy()
@@ -78,7 +82,7 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
         for key in ["vsc_ac_bus", "vsc_dc_bus", "vsc_p_set", "vsc_q_set",
                      "vsc_v_ac_set", "vsc_v_dc_set", "vsc_droop_k",
                      "vsc_p_dc_set", "vsc_v_dc_droop_set",
-                     "vsc_loss_a", "vsc_loss_b", "vsc_loss_c",
+                     "vsc_loss_a", "vsc_loss_b", "vsc_loss_c", "vsc_loss_c_inv",
                      "vsc_r_tf", "vsc_x_tf", "vsc_r_c", "vsc_x_c",
                      "vsc_b_filter", "vsc_s_mva", "vsc_loss_base_kv"]:
             data[key] = np.array([])

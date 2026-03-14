@@ -20,6 +20,7 @@ def _append_row(df: pd.DataFrame, row: dict) -> tuple:
 
 def create_ac_bus(net: Network, vr_kv: float, name: str = "",
                   v_min_pu: float = 0.9, v_max_pu: float = 1.1,
+                  gs_pu: float = 0.0, bs_pu: float = 0.0,
                   in_service: bool = True) -> int:
     """
     This function creates an AC bus based on the given parameters.
@@ -29,6 +30,8 @@ def create_ac_bus(net: Network, vr_kv: float, name: str = "",
     :param name: bus name
     :param v_min_pu: minimum bus voltage in pu (default: 0.9)
     :param v_max_pu: maximum bus voltage in pu (default: 1.1)
+    :param gs_pu: shunt conductance in pu on system base (default: 0.0)
+    :param bs_pu: shunt susceptance in pu on system base (default: 0.0)
     :param in_service: bus status (default: True)
 
     :return: index of the created bus
@@ -38,6 +41,8 @@ def create_ac_bus(net: Network, vr_kv: float, name: str = "",
         "vr_kv": vr_kv,
         "v_min_pu": v_min_pu,
         "v_max_pu": v_max_pu,
+        "gs_pu": gs_pu,
+        "bs_pu": bs_pu,
         "in_service": in_service,
     })
     return idx
@@ -52,6 +57,8 @@ def create_ac_line(
     x_ohm_per_km: float,
     b_us_per_km: float = 0.0,
     g_us_per_km: float = 0.0,
+    tap: float = 1.0,
+    shift_deg: float = 0.0,
     max_i_ka: Optional[float] = None,
     name: str = "",
     in_service: bool = True,
@@ -77,6 +84,10 @@ def create_ac_line(
         Shunt susceptance in uS/km (default: 0.0)
     g_us_per_km : float, optional
         Shunt conductance in uS/km (default: 0.0)
+    tap : float, optional
+        Transformer tap ratio (default: 1.0 = no transformer)
+    shift_deg : float, optional
+        Transformer phase shift in degrees (default: 0.0)
     max_i_ka : float, optional
         Maximum current in kA
     name : str, optional
@@ -98,6 +109,8 @@ def create_ac_line(
         "x_ohm_per_km": x_ohm_per_km,
         "b_us_per_km": b_us_per_km,
         "g_us_per_km": g_us_per_km,
+        "tap": tap,
+        "shift_deg": shift_deg,
         "max_i_ka": max_i_ka,
         "in_service": in_service,
     })

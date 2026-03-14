@@ -225,23 +225,14 @@ def create_case33_ieee() -> Network:
                        length_km=1.0, r_ohm_per_km=r_ohm,
                        name=f"DC Line {fbus}-{tbus}")
 
-    # ===================================================================
     # VSC CONVERTERS
-    # Based on case33_ieee_DC.m convdc matrix
-    # Columns: busdc_i, type_dc, type_ac, P_g, Q_g, Vtar, rtf, xtf, bf, rc, xc,
-    #          basekVac, Vmmax, Vmmin, Imax, status, LossA, LossB, LossCrec, LossCinv
-    #
     # type_dc: 1 = Vdc slack (controls DC voltage), 2 = P-controlled
     # type_ac: 1 = PQ control, 2 = PV/Vac control
     # P_g, Q_g are in per-unit on 100 MVA base
-    # ===================================================================
 
-    # Mapping DC bus numbers to AC bus numbers (from busdc data)
+    # Mapping DC bus numbers to AC bus numbers
     dc_to_ac = {8: 7, 11: 12, 16: 15, 18: 33, 21: 20, 26: 6, 28: 29}
 
-    # Converter data from case33_ieee_DC.m:
-    # (dc_bus, type_dc, type_ac, P_g_MW, Q_g_MVAr, V_target, xc)
-    #
     # NOTE: Power values in MatACDC convdc matrix are in MW/MVAr, NOT per-unit!
     # (See runacdcpf.m line 275: Pvsc = convdc(:, PCONV)/baseMVA to convert to pu)
     #
@@ -261,7 +252,6 @@ def create_case33_ieee() -> Network:
         # MatACDC convention: type_dc=1 is P-control, type_dc=2 is Vdc-control
         # P convention: MatACDC P_g > 0 = inverter, Python P_s > 0 = rectifier (NEGATE P)
         # Q convention: Also needs negation for Python's load-based injection model
-        #
         # Vdc slack with Vac control (type_dc=2, type_ac=2)
         (8,  2, 2,  0.00,  0.000, 1.03, 0.16428),
         (26, 2, 2,  0.00,  0.000, 1.00, 0.16428),

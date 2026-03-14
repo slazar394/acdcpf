@@ -38,8 +38,14 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/your-repo/acdcpf"
+Homepage = "https://github.com/your-username/acdcpf"
+Repository = "https://github.com/your-username/acdcpf"
+Issues = "https://github.com/your-username/acdcpf/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["acdcpf*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

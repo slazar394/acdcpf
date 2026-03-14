@@ -108,8 +108,8 @@ def _net_to_ppc(net: Network, island_buses: List[int],
         bus_data[i, BUS_TYPE] = PQ  # default PQ, updated below
         bus_data[i, PD] = 0.0
         bus_data[i, QD] = 0.0
-        bus_data[i, GS] = 0.0
-        bus_data[i, BS] = 0.0
+        bus_data[i, GS] = float(row.get("gs_pu", 0.0))
+        bus_data[i, BS] = float(row.get("bs_pu", 0.0))
         bus_data[i, BUS_AREA] = 1
         bus_data[i, VM] = 1.0
         bus_data[i, VA] = 0.0
@@ -255,8 +255,9 @@ def _net_to_ppc(net: Network, island_buses: List[int],
             max_i = line.get("max_i_ka")
             if max_i is not None and not (isinstance(max_i, float) and np.isnan(max_i)):
                 br[RATE_A] = float(max_i) * vr_kv * np.sqrt(3)  # MVA rating
-            br[TAP] = 0.0  # No transformer
-            br[SHIFT] = 0.0
+            tap_val = line.get("tap", 1.0)
+            br[TAP] = float(tap_val) if tap_val != 1.0 else 0.0  # pypower: 0 = no transformer
+            br[SHIFT] = float(line.get("shift_deg", 0.0))
             br[BR_STATUS] = 1
             branch_list.append(br)
 
@@ -372,6 +373,7 @@ def run_ac_pf(
         OUT_ALL=0,
     )
 
+    net._ppc_results = {}
     for island_buses in islands:
         # Build pypower case for this island
         ppc = _net_to_ppc(net, island_buses, p_vsc, q_vsc, vsc_v_control)
@@ -385,12 +387,7 @@ def run_ac_pf(
         # Extract results
         _ppc_to_results(result, island_buses, v_mag, v_ang)
 
-    # Store the solved ppc for later result extraction
-    # (last island's result; for multi-island we store per-island)
-    net._ppc_results = {}
-    for island_buses in islands:
-        ppc = _net_to_ppc(net, island_buses, p_vsc, q_vsc, vsc_v_control)
-        result, success = runpf(ppc, ppopt)
+        # Store solved ppc for Q extraction
         net._ppc_results[tuple(island_buses)] = result
 
     return v_mag, v_ang, all_converged, total_iter

@@ -177,7 +177,7 @@ def create_case5_stagg_mtdc_slack() -> Network:
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
-        loss_c=2.885,
+        loss_c=2.885, loss_c_inv=4.371,
         name="VSC DC1-AC2"
     )
 
@@ -198,7 +198,7 @@ def create_case5_stagg_mtdc_slack() -> Network:
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
-        loss_c=2.885,
+        loss_c=2.885, loss_c_inv=4.371,
         name="VSC DC2-AC3"
     )
 
@@ -218,7 +218,7 @@ def create_case5_stagg_mtdc_slack() -> Network:
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
-        loss_c=2.885,
+        loss_c=2.885, loss_c_inv=4.371,
         name="VSC DC3-AC5"
     )
 

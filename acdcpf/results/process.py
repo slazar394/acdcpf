@@ -81,12 +81,27 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
         y_series = 1.0 / z if abs(z) > 0 else 0.0
         y_shunt = 1j * b / 2
 
+        tap = float(row.get("tap", 1.0))
+        if tap == 0.0:
+            tap = 1.0  # pypower convention: 0 means no transformer
+        shift_rad = np.radians(float(row.get("shift_deg", 0.0)))
+
         v_f = v_mag[fb] * np.exp(1j * v_ang[fb])
         v_t = v_mag[tb] * np.exp(1j * v_ang[tb])
 
-        # Power flows
-        i_ft = (v_f - v_t) * y_series + v_f * y_shunt
-        i_tf = (v_t - v_f) * y_series + v_t * y_shunt
+        # Power flows (MATPOWER transformer model: tap and shift at from bus)
+        if tap != 1.0 or shift_rad != 0.0:
+            t_exp_neg = tap * np.exp(1j * shift_rad)
+            t_exp_pos = tap * np.exp(-1j * shift_rad)
+            yff = (y_series + y_shunt) / (tap * tap)
+            yft = -y_series / t_exp_neg
+            ytf = -y_series / t_exp_pos
+            ytt = y_series + y_shunt
+            i_ft = yff * v_f + yft * v_t
+            i_tf = ytf * v_f + ytt * v_t
+        else:
+            i_ft = (v_f - v_t) * y_series + v_f * y_shunt
+            i_tf = (v_t - v_f) * y_series + v_t * y_shunt
 
         s_ft = v_f * np.conj(i_ft) * net.s_base  # MVA
         s_tf = v_t * np.conj(i_tf) * net.s_base
@@ -169,8 +184,11 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
 
         # DC loads
         if not net.dc_load.empty:
-            loads = net.dc_load[(net.dc_load["bus"] == idx) & (net.dc_load["in_service"] == True)]
-            p_mw -= loads["p_mw"].astype(float).sum()
+            for _, ld in net.dc_load[(net.dc_load["bus"] == idx) & (net.dc_load["in_service"] == True)].iterrows():
+                if str(ld.get("load_type", "constant_power")) == "constant_impedance":
+                    p_mw -= float(ld["p_mw"]) * v_pu ** 2
+                else:
+                    p_mw -= float(ld["p_mw"])
 
         # DC generators
         if not net.dc_gen.empty:

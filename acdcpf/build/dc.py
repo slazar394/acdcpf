@@ -52,6 +52,18 @@ def build_dc_conductance_matrix(net: Network) -> sparse.csr_matrix:
             G[fb, tb] -= g_pu
             G[tb, fb] -= g_pu
 
+    # Add constant-impedance DC loads as self-conductance.
+    # P_load(V) = P_rated * V^2 = G_load * V^2  =>  G_load = P_rated / S_base (pu)
+    if not net.dc_load.empty:
+        ci_loads = net.dc_load[
+            (net.dc_load["in_service"] == True)
+            & (net.dc_load["load_type"] == "constant_impedance")
+        ]
+        for _, load in ci_loads.iterrows():
+            bus = int(load["bus"])
+            g_load = float(load["p_mw"]) / net.s_base
+            G[bus, bus] += g_load
+
     # Add DC-DC converter branches (transformer model)
     if not net.dcdc.empty:
         dcdcs = net.dcdc[net.dcdc["in_service"] == True]
@@ -67,14 +79,14 @@ def build_dc_conductance_matrix(net: Network) -> sparse.csr_matrix:
             v_c_base = float(net.dc_bus.loc[c, "v_base"])  # kV
             d_pu = d_ratio * v_m_base / v_c_base
 
-            # Series conductance in system pu (on V_c base)
+            # Series conductance in system pu (on V_c base, R on LV side)
             z_base_c = v_c_base ** 2 / net.s_base
             g_series = z_base_c / r_ohm if r_ohm > 0 else 0.0
 
             # Shunt conductance in system pu (on V_m base)
             g_shunt = g_us_val * 1e-6 * v_m_base ** 2 / net.s_base
 
-            # Transformer branch contributions
+            # Transformer branch contributions (R on c/LV side)
             G[m, m] += d_pu ** 2 * g_series + g_shunt
             G[m, c] -= d_pu * g_series
             G[c, m] -= d_pu * g_series
@@ -148,9 +160,13 @@ def build_dc_bus_data(
                 p_spec[dc_bus] += p_dc_vsc[vsc_idx]
 
     # Subtract DC loads (load = positive consumption = negative injection)
+    # Only constant-power loads go into p_spec; constant-impedance loads are
+    # already embedded in G_dc (voltage-dependent, handled automatically by NR).
     if not net.dc_load.empty:
         loads = net.dc_load[net.dc_load["in_service"] == True]
         for _, load in loads.iterrows():
+            if str(load.get("load_type", "constant_power")) == "constant_impedance":
+                continue
             bus = int(load["bus"])
             p_spec[bus] -= float(load["p_mw"])
 

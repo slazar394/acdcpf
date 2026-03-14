@@ -199,7 +199,7 @@ def create_case5_stagg_hvdc_ptp() -> Network:
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
-        loss_c=2.885,  # Using LossCrec
+        loss_c=2.885, loss_c_inv=4.371,  # Using LossCrec
         name="VSC DC1-AC2"
     )
 
@@ -221,7 +221,7 @@ def create_case5_stagg_hvdc_ptp() -> Network:
         b_filter_pu=0.0887,
         loss_a=1.103,
         loss_b=0.887,
-        loss_c=2.885,
+        loss_c=2.885, loss_c_inv=4.371,
         name="VSC DC2-AC3"
     )
 

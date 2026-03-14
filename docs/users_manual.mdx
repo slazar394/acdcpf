@@ -137,7 +137,7 @@ net = create_empty_network(
     name="My Network",    # Network name
     s_base=100.0,         # System base power (MVA)
     f_hz=50.0,            # System frequency (Hz)
-    poles=2               # DC poles (2 for bipole/symmetric monopole)
+    pol=2                 # DC poles (2 for bipole/symmetric monopole)
 )
 ```
 
@@ -148,7 +148,7 @@ net = create_empty_network(
 | `name` | str | Network name |
 | `s_base` | float | Base power (MVA), default 100.0 |
 | `f_hz` | float | System frequency (Hz), default 50.0 |
-| `poles` | int | DC poles (1=asymmetric monopole, 2=bipole/symmetric monopole) |
+| `pol` | int | DC poles (1=asymmetric monopole, 2=bipole/symmetric monopole) |
 | `ac_bus` | DataFrame | AC bus data |
 | `ac_line` | DataFrame | AC transmission line data |
 | `ac_load` | DataFrame | AC load data |
@@ -325,7 +325,7 @@ idx = pf.create_dc_bus(
 **Voltage Convention:**
 - For symmetric monopole (+/-200 kV): use `v_base=200` (per pole)
 - For bipole (+/-400 kV): use `v_base=400` (per pole)
-- The `poles` parameter in `create_empty_network` handles the pole configuration
+- The `pol` parameter in `create_empty_network` handles the pole configuration
 
 **DataFrame columns (`net.dc_bus`):**
 
@@ -439,10 +439,14 @@ idx = pf.create_vsc(
     v_dc_set_pu=1.0,           # Droop Vdc setpoint (pu)
     loss_a=1.0,                # Constant loss term (MW)
     loss_b=0.0,                # Linear loss term (kV)
-    loss_c=0.0,                # Quadratic loss term (Ohm)
-    r_pu=0.01,                 # Converter resistance (pu)
-    x_pu=0.10,                 # Converter reactance (pu)
+    loss_c=0.0,                # Quadratic loss coefficient, rectifier (Ohm)
+    loss_c_inv=0.0,            # Quadratic loss coefficient, inverter (Ohm)
+    r_tf_pu=0.01,              # Transformer resistance (pu)
+    x_tf_pu=0.10,              # Transformer reactance (pu)
+    r_c_pu=0.0,                # Phase reactor resistance (pu)
+    x_c_pu=0.0,                # Phase reactor reactance (pu)
     b_filter_pu=0.05,          # Filter susceptance (pu)
+    loss_base_kv=None,         # AC base voltage for loss calc (kV)
     in_service=True,           # Converter in service
     name="VSC1"                # Converter name
 )
@@ -478,7 +482,17 @@ Losses are modeled as:
 ```
 P_loss = a + b * |I_c| + c * |I_c|^2
 ```
-Where `I_c` is the converter current magnitude.
+Where `I_c` is the converter current magnitude and `c` is selected based on operating mode:
+- `loss_c` (maps to MatACDC `LossCrec`) is used when the converter operates as **inverter** in acdcpf convention (P_c < 0, DC→AC)
+- `loss_c_inv` (maps to MatACDC `LossCinv`) is used when the converter operates as **rectifier** in acdcpf convention (P_c > 0, AC→DC)
+
+If `loss_c_inv` is not specified, it defaults to `loss_c`.
+
+**Loss Base Voltage:**
+The `loss_base_kv` parameter specifies the AC base voltage used for converting loss coefficients from physical to per-unit. If omitted, the rated voltage of the connected AC bus is used. This matches MatACDC's `basekVac` field, which is only used for loss coefficient conversion (not impedance scaling).
+
+**Vac/Generator Conflict:**
+When a VSC with AC voltage control (`p_vac`, `vdc_vac`, `droop_vac`) is connected to a bus that already has an AC generator controlling voltage (PV bus), the VSC's Vac control is automatically removed and its reactive power is set to zero. This prevents conflicting voltage setpoints and matches MatACDC's behavior.
 
 **DataFrame columns (`net.vsc`):**
 
@@ -498,10 +512,14 @@ Where `I_c` is the converter current magnitude.
 | `v_dc_set_pu` | float | pu | Droop V setpoint |
 | `loss_a` | float | MW | Constant loss |
 | `loss_b` | float | kV | Linear loss coefficient |
-| `loss_c` | float | Ohm | Quadratic loss coefficient |
-| `r_pu` | float | pu | Converter resistance |
-| `x_pu` | float | pu | Converter reactance |
+| `loss_c` | float | Ohm | Quadratic loss coefficient (rectifier) |
+| `loss_c_inv` | float | Ohm | Quadratic loss coefficient (inverter) |
+| `r_tf_pu` | float | pu | Transformer resistance |
+| `x_tf_pu` | float | pu | Transformer reactance |
+| `r_c_pu` | float | pu | Phase reactor resistance |
+| `x_c_pu` | float | pu | Phase reactor reactance |
 | `b_filter_pu` | float | pu | Filter susceptance |
+| `loss_base_kv` | float | kV | AC base voltage for loss calc |
 | `in_service` | bool | - | Converter status |
 
 ### DC-DC Converters
@@ -651,28 +669,31 @@ ACDCPF implements the sequential AC/DC power flow algorithm, which iterates betw
 
 ### VSC Converter Model
 
-The VSC is modeled with three main components:
+The VSC is modeled with four main components:
 
-1. **AC-side transformer** with impedance Z_tf = R + jX
+1. **AC-side transformer** with impedance Z_tf = R_tf + jX_tf
 2. **Filter** with shunt susceptance B_f
-3. **Power electronic converter** with losses
+3. **Phase reactor** with impedance Z_c = R_c + jX_c
+4. **Power electronic converter** with losses
 
 **Equivalent Circuit:**
 
 ```
-AC Bus (V_s)                                    DC Bus (V_dc)
-    │                                               │
-    │    ┌───────────┐                              │
-    ├────┤  Z_tf     ├────┬───────[Converter]──────┤
-    │    │ R + jX    │    │         P_loss          │
-    │    └───────────┘    │                         │
-    │                     │                         │
-    │               ┌─────┴─────┐                   │
-    │               │   jB_f    │                   │
-    │               │  (Filter) │                   │
-    │               └───────────┘                   │
-    │                                               │
+AC Bus (V_s)                                             DC Bus (V_dc)
+    │                                                        │
+    │    ┌───────────┐         ┌───────────┐                │
+    ├────┤  Z_tf     ├────┬────┤  Z_c      ├──[Converter]──┤
+    │    │ Rtf + jXtf│    │    │ Rc + jXc  │    P_loss      │
+    │    └───────────┘    │    └───────────┘                 │
+    │                     │                                  │
+    │               ┌─────┴─────┐                            │
+    │               │   jB_f    │                            │
+    │               │  (Filter) │                            │
+    │               └───────────┘                            │
+    │                                                        │
 ```
+
+**Note:** The phase reactor (Z_c) is optional. When `r_c_pu=0` and `x_c_pu=0`, the model reduces to a single-impedance transformer model.
 
 **Key Equations (Beerten Equations 13.11-13.23):**
 
@@ -683,7 +704,7 @@ I_tf = conj(S_s / V_s)
 
 2. **Filter voltage:**
 ```
-V_f = V_s + I_tf * Z_tf
+V_f = V_s + I_tf * Z_tf       (where Z_tf = R_tf + jX_tf)
 ```
 
 3. **Filter-side power:**
@@ -706,10 +727,11 @@ S_cf = S_sf + j*Q_f
 I_c = conj(S_cf / V_f)
 ```
 
-7. **Converter losses:**
+7. **Converter losses (sign-dependent):**
 ```
 P_loss = a + b*|I_c| + c*|I_c|^2
 ```
+Where `c = loss_c_inv` if rectifying (P_c > 0), `c = loss_c` if inverting (P_c < 0).
 
 8. **DC-side power:**
 ```
@@ -794,7 +816,7 @@ Iterate until convergence:
     S_cf = V_f * conj(I_tf) + j*Q_f
     I_c = conj(S_cf / V_f)
     P_loss = a + b*|I_c| + c*|I_c|^2
-    p_s_new = (P_dc + P_loss + R_tf*|I_tf|^2) / S_base
+    p_s_new = P_dc + P_loss + R_tf*|I_tf|^2
     Check: |p_s_new - p_s| < tolerance
     p_s = p_s_new
 ```
@@ -994,6 +1016,38 @@ The CIGRE B4 DC grid test system consists of:
 **Reference:**
 T.K. Vrana et al., "The CIGRE B4 DC Grid Test System", ELECTRA No. 270, October 2013.
 
+### MatACDC Validation Cases
+
+These cases are ported from the MatACDC MATLAB toolbox and validated against its reference results:
+
+```python
+from acdcpf.networks import (
+    create_case5_stagg_hvdc_ptp,
+    create_case5_stagg_mtdc_slack,
+    create_case5_stagg_mtdc_droop,
+    create_case24_ieee_rts_mtdc,
+)
+```
+
+| Function | Description |
+|----------|-------------|
+| `create_case5_stagg_hvdc_ptp` | 5-bus Stagg system with point-to-point HVDC (2 VSCs) |
+| `create_case5_stagg_mtdc_slack` | 5-bus Stagg system with 3-terminal MTDC (Vdc slack control) |
+| `create_case5_stagg_mtdc_droop` | 5-bus Stagg system with 3-terminal MTDC (droop control) |
+| `create_case24_ieee_rts_mtdc` | IEEE 24-bus RTS (3 asynchronous zones) with 7-converter MTDC |
+
+**Reference:**
+J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", IEEE Trans. Power Syst., 2012.
+
+### IEEE 33-Bus with MTDC
+
+```python
+from acdcpf.networks import create_case33_ieee, create_case33_ieee_ext
+
+net = create_case33_ieee()       # Basic IEEE 33-bus with MTDC
+net = create_case33_ieee_ext()   # Extended variant
+```
+
 ---
 
 ## Complete Examples
@@ -1058,8 +1112,8 @@ pf.create_vsc(net,
     p_mw=600.0,
     q_mvar=0.0,
     loss_a=1.0,
-    r_pu=0.01,
-    x_pu=0.12,
+    r_tf_pu=0.01,
+    x_tf_pu=0.12,
     name="VSC-Rectifier"
 )
 
@@ -1071,8 +1125,8 @@ pf.create_vsc(net,
     v_dc_pu=1.0,
     q_mvar=50.0,  # Provide some reactive power support
     loss_a=1.0,
-    r_pu=0.01,
-    x_pu=0.12,
+    r_tf_pu=0.01,
+    x_tf_pu=0.12,
     name="VSC-Inverter"
 )
 
@@ -1143,7 +1197,7 @@ pf.create_dc_line(net, dc_a, dc_c, length_km=200.0, r_ohm_per_km=0.012, name="DC
 # VSC-A: Vdc control (slack)
 pf.create_vsc(net, ac_bus=ac_a, dc_bus=dc_a, s_mva=600.0,
               control_mode="vdc_vac", v_dc_pu=1.0, v_ac_pu=1.0,
-              r_pu=0.01, x_pu=0.1, loss_a=0.6, name="VSC-A")
+              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.6, name="VSC-A")
 
 # VSC-B: Droop control (P0=-200 MW, k=0.02 kV/MW)
 pf.create_vsc(net, ac_bus=ac_b, dc_bus=dc_b, s_mva=400.0,
@@ -1151,7 +1205,7 @@ pf.create_vsc(net, ac_bus=ac_b, dc_bus=dc_b, s_mva=400.0,
               droop_kv_per_mw=0.02,
               p_dc_set_mw=-200.0,  # Target inverter mode
               v_dc_set_pu=1.0,
-              r_pu=0.01, x_pu=0.1, loss_a=0.4, name="VSC-B")
+              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.4, name="VSC-B")
 
 # VSC-C: Droop control (P0=-150 MW, k=0.02 kV/MW)
 pf.create_vsc(net, ac_bus=ac_c, dc_bus=dc_c, s_mva=300.0,
@@ -1159,7 +1213,7 @@ pf.create_vsc(net, ac_bus=ac_c, dc_bus=dc_c, s_mva=300.0,
               droop_kv_per_mw=0.02,
               p_dc_set_mw=-150.0,
               v_dc_set_pu=1.0,
-              r_pu=0.01, x_pu=0.1, loss_a=0.3, name="VSC-C")
+              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.3, name="VSC-C")
 
 # === Run and analyze ===
 converged = run_pf(net, verbose=True)
@@ -1219,7 +1273,7 @@ pf.create_vsc(net, ac_bus=ac_offshore, dc_bus=dc_offshore, s_mva=600.0,
               control_mode="p_vac",
               p_mw=0.0,  # Wind injects, VSC balances
               v_ac_pu=1.0,
-              r_pu=0.01, x_pu=0.15,
+              r_tf_pu=0.01, x_tf_pu=0.15,
               loss_a=0.6, name="VSC-Offshore")
 
 # Onshore: Vdc-Vac control
@@ -1227,7 +1281,7 @@ pf.create_vsc(net, ac_bus=ac_onshore, dc_bus=dc_onshore, s_mva=600.0,
               control_mode="vdc_vac",
               v_dc_pu=1.0,
               v_ac_pu=1.0,
-              r_pu=0.01, x_pu=0.15,
+              r_tf_pu=0.01, x_tf_pu=0.15,
               loss_a=0.6, name="VSC-Onshore")
 
 # === Run power flow ===
@@ -1257,7 +1311,7 @@ acdcpf.create_empty_network(
     name: str = "",
     s_base: float = 100.0,
     f_hz: float = 50.0,
-    poles: int = 2
+    pol: int = 2
 ) -> Network
 ```
 
@@ -1291,8 +1345,19 @@ acdcpf.run_pf(
 ### Test Networks
 
 ```python
+# Simple test cases (available from acdcpf top-level)
 acdcpf.create_2terminal_hvdc() -> Network
 acdcpf.create_cigre_b4_dc_test_system() -> Network
+
+# MatACDC validation cases (from acdcpf.networks)
+from acdcpf.networks import (
+    create_case5_stagg_hvdc_ptp,
+    create_case5_stagg_mtdc_slack,
+    create_case5_stagg_mtdc_droop,
+    create_case24_ieee_rts_mtdc,
+    create_case33_ieee,
+    create_case33_ieee_ext,
+)
 ```
 
 ---

@@ -19,6 +19,7 @@ Available networks:
 from .cigre_b4 import create_cigre_b4_dc_test_system
 from .simple import create_2terminal_hvdc
 from .case33_ieee import create_case33_ieee
+from .case33_ieee_ext import create_case33_ieee_ext
 from .case5_stagg_hvdc_ptp import create_case5_stagg_hvdc_ptp
 from .case5_stagg_mtdc_slack import create_case5_stagg_mtdc_slack
 from .case5_stagg_mtdc_droop import create_case5_stagg_mtdc_droop
@@ -29,6 +30,7 @@ __all__ = [
     "create_2terminal_hvdc",
     # IEEE/CIGRE standard cases
     "create_case33_ieee",
+    "create_case33_ieee_ext",
     "create_cigre_b4_dc_test_system",
     # MatACDC compatible cases
     "create_case5_stagg_hvdc_ptp",

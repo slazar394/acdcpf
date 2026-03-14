@@ -23,6 +23,7 @@ def create_vsc(
     loss_a: float = 0.0,
     loss_b: float = 0.0,
     loss_c: float = 0.0,
+    loss_c_inv: float = None,
     r_tf_pu: float = 0.01,
     x_tf_pu: float = 0.1,
     r_c_pu: float = 0.0,
@@ -72,7 +73,13 @@ def create_vsc(
     loss_b : float, optional
         Linear loss coefficient in kV (default: 0.0)
     loss_c : float, optional
-        Quadratic loss coefficient in Ohm (default: 0.0)
+        Quadratic loss coefficient in Ohm (default: 0.0).
+        Used when converter operates as inverter in acdcpf convention (P_c < 0).
+        Maps to MatACDC's LossCrec.
+    loss_c_inv : float, optional
+        Quadratic loss coefficient for rectifier operation in Ohm (default: None, uses loss_c).
+        Used when converter operates as rectifier in acdcpf convention (P_c > 0).
+        Maps to MatACDC's LossCinv.
     r_tf_pu : float, optional
         Transformer resistance in pu (default: 0.01)
     x_tf_pu : float, optional
@@ -112,6 +119,7 @@ def create_vsc(
         "loss_a": loss_a,
         "loss_b": loss_b,
         "loss_c": loss_c,
+        "loss_c_inv": loss_c_inv if loss_c_inv is not None else loss_c,
         "r_tf_pu": r_tf_pu,
         "x_tf_pu": x_tf_pu,
         "r_c_pu": r_c_pu,
