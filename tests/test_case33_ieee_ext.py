@@ -1,25 +1,22 @@
 """
 Validation tests for the IEEE 33-bus extended system with DC elements.
 
-Compares acdcpf results against reference values from
-'33-bus with DC elements.xlsx'.
+Compares acdcpf results against reference values from PowerFactory.
 
-Reference sign convention (Excel/PowerFactory):
+Reference sign convention (PowerFactory):
     P > 0 = inverter (DC->AC), P < 0 = rectifier (AC->DC)
 Python (acdcpf) sign convention:
     P_s > 0 = rectifier (AC->DC), P_s < 0 = inverter (DC->AC)
 """
 
-import os
-import pytest
-import numpy as np
-import pandas as pd
-
 from acdcpf.networks import create_case33_ieee_ext
 from acdcpf.powerflow import run_pf
 
+import pandas as pd
+import numpy as np
+import pytest
+import os
 
-# ── Reference data from '33-bus with DC elements.xlsx' ──────────────
 
 # AC bus numbers in order of internal index
 AC_BUS_NUMS = [1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 19, 20, 23, 24, 25, 29, 30, 31, 32, 33]
@@ -29,7 +26,6 @@ DC_BUS_NUMS = [8, 9, 10, 11, 16, 17, 18, 21, 22, 26, 27, 28, 34, 35, 36]
 
 # DC-DC connected buses (excluded from strict DC voltage check)
 DCDC_BUSES = {34, 35, 36}
-
 
 # Reference AC bus results: {bus_num: (vm_pu, va_degree)}
 REF_AC_BUS = {
@@ -65,7 +61,7 @@ REF_DC_BUS = {
     34: 1.060, 35: 1.062, 36: 1.093,
 }
 
-# Reference VSC results: [(name, p_mw, q_mvar)] in Excel convention
+# Reference VSC results: [(name, p_mw, q_mvar)]
 # (inverter-positive for P, generator-positive for Q)
 REF_VSC = [
     ("VSC DC8-AC7",   -1.067, 8.527),    # Vdc slack + Vac
@@ -115,18 +111,20 @@ REF_DC_BRANCH = [
 ]
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────
+# Fixtures
 
 @pytest.fixture(scope="module")
 def solved_network():
-    """Create and solve the IEEE 33-bus extended network."""
+    """
+    Create and solve the IEEE 33-bus extended network.
+    """
     net = create_case33_ieee_ext()
     converged = run_pf(net, verbose=False, max_iter_outer=50)
-    assert converged, "Power flow must converge"
+    assert converged, "Power flow must converge."
     return net
 
 
-# ── AC bus voltage tests ─────────────────────────────────────────────
+# AC bus voltage tests
 
 class TestACBusVoltages:
     """Compare AC bus voltage magnitudes against reference."""
@@ -152,10 +150,14 @@ class TestACBusVoltages:
 # DC bus voltage tests
 
 class TestDCBusVoltages:
-    """Compare DC bus voltages against reference."""
+    """
+    Compare DC bus voltages against reference.
+    """
 
     def test_dc_voltage_original_buses(self, solved_network):
-        """Original 12 DC bus voltages should match within 0.002 pu."""
+        """
+        Original 12 DC bus voltages should match within 0.001 pu.
+        """
         net = solved_network
         max_diff = 0.0
         for i, bnum in enumerate(DC_BUS_NUMS):
@@ -166,12 +168,14 @@ class TestDCBusVoltages:
             diff = abs(got_v - ref_v)
             max_diff = max(max_diff, diff)
 
-        assert max_diff < 0.002, (
+        assert max_diff < 0.001, (
             f"DC voltage max diff (excl. DCDC buses) = {max_diff:.4f} pu"
         )
 
     def test_dc_voltage_dcdc_buses(self, solved_network):
-        """DC-DC connected bus voltages (34,35,36) should match within 0.003 pu."""
+        """
+        DC-DC connected bus voltages (34,35,36) should match within 0.003 pu.
+        """
         net = solved_network
         max_diff = 0.0
         for i, bnum in enumerate(DC_BUS_NUMS):
@@ -187,7 +191,9 @@ class TestDCBusVoltages:
         )
 
     def test_dc_slack_buses(self, solved_network):
-        """Vdc slack buses must hold their setpoints."""
+        """
+        Vdc slack buses must hold their setpoints.
+        """
         net = solved_network
         slack_setpoints = {8: 1.02, 18: 1.0, 26: 1.0}
         for bnum, v_set in slack_setpoints.items():
@@ -197,23 +203,19 @@ class TestDCBusVoltages:
                 f"DC Bus {bnum}: Vdc={got_v:.6f}, expected {v_set}"
             )
 
-    def test_dc_voltages_in_bounds(self, solved_network):
-        """All DC voltages should be within [0.90, 1.15]."""
-        v_dc = solved_network.res_dc_bus["v_dc_pu"].values
-        assert np.all(v_dc >= 0.90), f"Min DC voltage: {v_dc.min():.4f}"
-        assert np.all(v_dc <= 1.15), f"Max DC voltage: {v_dc.max():.4f}"
-
-
-# ── VSC converter tests ──────────────────────────────────────────────
+# VSC converter tests
 
 class TestVSCResults:
-    """Compare VSC converter results against reference."""
+    """
+    Compare VSC converter results against reference.
+    """
 
     def test_pq_converters_match_setpoints(self, solved_network):
-        """P-Q controlled converters must match their setpoints exactly.
+        """
+        P-Q controlled converters must match their setpoints exactly.
 
         PQ converters (indices 3-6) have fixed P and Q.
-        Python convention: P > 0 = rectifier (opposite to Excel).
+        Python convention: P > 0 = rectifier (opposite to PowerFactory).
         """
         net = solved_network
         # PQ VSCs: indices 3,4,5,6 in our ordering
@@ -233,9 +235,11 @@ class TestVSCResults:
             )
 
     def test_slack_vsc_power_direction(self, solved_network):
-        """Slack VSCs should transfer power in the expected direction."""
+        """
+        Slack VSCs should transfer power in the expected direction.
+        """
         net = solved_network
-        # vsc_1 (DC8-AC7): reference P=-1.067 (rectifier in Excel convention)
+        # vsc_1 (DC8-AC7): reference P=-1.067 (rectifier in PowerFactory convention)
         # -> Python P should be positive (rectifier)
         p_vsc1 = net.res_vsc.loc[0, "p_ac_mw"]
         assert p_vsc1 > 0, f"VSC1 should be rectifying, got P={p_vsc1:.3f}"
@@ -245,10 +249,12 @@ class TestVSCResults:
         assert p_vsc2 > 0, f"VSC2 should be rectifying, got P={p_vsc2:.3f}"
 
 
-# ── DC branch flow tests ─────────────────────────────────────────────
+# DC branch flow tests
 
 class TestDCBranchFlows:
-    """Compare DC branch flows against reference."""
+    """
+    Compare DC branch flows against reference.
+    """
 
     def test_dc_branch_flow_directions(self, solved_network):
         """DC branch power should flow in the correct direction."""
@@ -263,21 +269,26 @@ class TestDCBranchFlows:
                 )
 
     def test_dc_branch_losses_nonnegative(self, solved_network):
-        """DC branch losses should be non-negative."""
+        """
+        DC branch losses should be non-negative.
+        """
         net = solved_network
         for i in range(len(net.res_dc_line)):
             p_loss = net.res_dc_line.loc[i, "p_loss_mw"]
             assert p_loss >= -1e-6, f"DC line {i}: negative loss {p_loss:.6f}"
 
 
-# ── Comprehensive comparison (informational) ─────────────────────────
+# Comprehensive comparison (informational)
 
 class TestFullComparison:
     """
-    Full comparison with reference."""
+    Full comparison with reference.
+    """
 
     def test_all_ac_voltages_close(self, solved_network):
-        """All AC bus voltages within tolerance of reference."""
+        """
+        All AC bus voltages within tolerance of reference.
+        """
         net = solved_network
         diffs = []
         for i, bnum in enumerate(AC_BUS_NUMS):
@@ -312,7 +323,9 @@ class TestExcelReport:
     """
 
     def test_generate_comparison_excel(self, solved_network):
-        """Generate comparison_report.xlsx with side-by-side results."""
+        """
+        Generate comparison_report.xlsx with side-by-side results.
+        """
         net = solved_network
         output_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
@@ -333,7 +346,9 @@ class TestExcelReport:
 # Sheet builders (module-level helpers)
 
 def _write_ac_bus_sheet(writer, net):
-    """AC Bus Voltages: PowerFactory vs acdcpf."""
+    """
+    AC Bus Voltages: PowerFactory vs acdcpf.
+    """
     rows = []
     for i, bnum in enumerate(AC_BUS_NUMS):
         ref_vm, ref_va = REF_AC_BUS[bnum]
@@ -404,7 +419,9 @@ def _write_vsc_sheet(writer, net):
 
 
 def _write_ac_branch_sheet(writer, net):
-    """AC Branch Flows: PowerFactory vs acdcpf."""
+    """
+    AC Branch Flows: PowerFactory vs acdcpf.
+    """
     rows = []
     for i, (fb, tb, ref_pf, ref_qf, ref_pt, ref_qt, ref_pl, ref_ql) in enumerate(REF_AC_BRANCH):
         got_pf = net.res_ac_line.loc[i, "p_from_mw"]
@@ -440,7 +457,9 @@ def _write_ac_branch_sheet(writer, net):
 
 
 def _write_dc_branch_sheet(writer, net):
-    """DC Branch Flows: PowerFactory vs acdcpf."""
+    """
+    DC Branch Flows: PowerFactory vs acdcpf.
+    """
     rows = []
     for i, (fb, tb, ref_pf, ref_pt, ref_pl) in enumerate(REF_DC_BRANCH):
         got_pf = net.res_dc_line.loc[i, "p_from_mw"]
@@ -464,7 +483,9 @@ def _write_dc_branch_sheet(writer, net):
 
 
 def _write_summary_sheet(writer, net):
-    """Summary statistics of the comparison."""
+    """
+    Summary statistics of the comparison.
+    """
     # AC voltage magnitude stats
     ac_vm_diffs = []
     for i, bnum in enumerate(AC_BUS_NUMS):

@@ -16,19 +16,20 @@ Reference:
   for Sequential AC/DC Power Flow Algorithms", IEEE Trans. Power Syst., 2012.
 """
 
-import json
-from pathlib import Path
 
-import numpy as np
-import pytest
-
+from acdcpf.powerflow import run_pf
 from acdcpf.networks import (
     create_case5_stagg_hvdc_ptp,
     create_case5_stagg_mtdc_slack,
     create_case5_stagg_mtdc_droop,
     create_case24_ieee_rts_mtdc,
 )
-from acdcpf.powerflow import run_pf
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+import json
 
 REFERENCE_DIR = Path(__file__).parent / "matacdc_reference_data"
 
@@ -56,7 +57,9 @@ CASE_TOLERANCES = {
 
 
 def _tol(case_name: str, key: str, default: float) -> float:
-    """Per-case tolerance; fallback to default."""
+    """
+    Per-case tolerance; fallback to default.
+    """
     return CASE_TOLERANCES.get(case_name, {}).get(key, default)
 
 
@@ -67,13 +70,13 @@ def _load_reference(case_name: str) -> dict:
 
 
 def _as_array(val):
-    """Ensure value is a numpy array (handles scalar JSON fields)."""
+    """
+    Ensure value is a numpy array (handles scalar JSON fields).
+    """
     return np.atleast_1d(np.asarray(val, dtype=float))
 
 
-# ---------------------------------------------------------------------------
 # Fixtures: run power flow once per case (module scope)
-# ---------------------------------------------------------------------------
 
 CASES = [
     ("case5_stagg_hvdc_ptp", create_case5_stagg_hvdc_ptp),
@@ -85,7 +88,9 @@ CASES = [
 
 @pytest.fixture(params=CASES, ids=[c[0] for c in CASES], scope="module")
 def solved_case(request):
-    """Run power flow and return (case_name, network, reference_data)."""
+    """
+    Run power flow and return (case_name, network, reference_data).
+    """
     case_name, create_func = request.param
     net = create_func()
     converged = run_pf(net, verbose=False, max_iter_outer=50)
@@ -94,9 +99,7 @@ def solved_case(request):
     return case_name, net, ref
 
 
-# ---------------------------------------------------------------------------
 # AC Bus Voltages
-# ---------------------------------------------------------------------------
 
 class TestACBusVoltages:
 
@@ -119,9 +122,7 @@ class TestACBusVoltages:
         )
 
 
-# ---------------------------------------------------------------------------
 # DC Bus Voltages
-# ---------------------------------------------------------------------------
 
 class TestDCBusVoltages:
 
@@ -135,9 +136,7 @@ class TestDCBusVoltages:
         )
 
 
-# ---------------------------------------------------------------------------
 # AC Line Flows
-# ---------------------------------------------------------------------------
 
 class TestACLineFlows:
 
@@ -178,9 +177,7 @@ class TestACLineFlows:
         )
 
 
-# ---------------------------------------------------------------------------
 # DC Line Flows
-# ---------------------------------------------------------------------------
 
 class TestDCLineFlows:
 
@@ -203,12 +200,11 @@ class TestDCLineFlows:
         )
 
 
-# ---------------------------------------------------------------------------
 # VSC Converter Variables
-# ---------------------------------------------------------------------------
 
 class TestVSCVariables:
-    """Compare VSC converter operating points.
+    """
+    Compare VSC converter operating points.
 
     acdcpf uses load convention (P_s > 0 = rectifier), while MatACDC
     uses generator convention (P_s > 0 = inverter). The comparison
