@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-username/acdcpf"
-Repository = "https://github.com/your-username/acdcpf"
-Issues = "https://github.com/your-username/acdcpf/issues"
+Homepage = "https://github.com/slazar394/acdcpf"
+Repository = "https://github.com/slazar394/acdcpf"
+Issues = "https://github.com/slazar394/acdcpf/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -2,7 +2,7 @@
 
 **Hybrid AC/DC Power Flow Library**
 
-*Version 0.1.0*
+*Version 0.1.0 — Python 3.9+*
 
 ---
 
@@ -25,6 +25,8 @@
 ## Introduction
 
 ACDCPF is a Python library for power flow analysis in hybrid AC/DC networks. It implements the **sequential AC/DC power flow method** based on the algorithms described in Beerten's work on VSC-HVDC systems.
+
+Power flow analysis computes the steady-state voltages, currents, and power flows throughout an electrical network given its topology, line parameters, loads, and generators. In hybrid AC/DC systems, AC and DC sub-networks are coupled through Voltage Source Converters (VSCs), which makes the problem harder — the AC and DC solutions depend on each other. ACDCPF handles this by solving each side iteratively until the whole system converges.
 
 ### Key Features
 
@@ -59,16 +61,14 @@ ACDCPF is a Python library for power flow analysis in hybrid AC/DC networks. It 
 ### From Source
 
 ```bash
-git clone https://github.com/your-repo/acdcpf.git
+git clone https://github.com/slazar394/acdcpf.git
 cd acdcpf
 pip install -e .
 ```
 
-### Dependencies
+This installs all dependencies automatically (NumPy, SciPy, Pandas, PyPower).
 
-```bash
-pip install numpy scipy pandas pypower
-```
+> **NumPy 2.x note:** PyPower uses `numpy.in1d` which was removed in NumPy 2.0. ACDCPF patches this automatically at import time, so no action is needed on your part.
 
 ---
 
@@ -111,16 +111,15 @@ print(net.res_vsc)
 
 ```python
 import acdcpf as pf
-from acdcpf.powerflow import run_pf
 
 # Load 2-terminal HVDC test system
 net = pf.create_2terminal_hvdc()
-converged = run_pf(net, verbose=True)
+converged = pf.run_pf(net, verbose=True)
 
 # Load a MatACDC validation case
 from acdcpf.networks import create_case5_stagg_mtdc_droop
 net = create_case5_stagg_mtdc_droop()
-converged = run_pf(net, verbose=True)
+converged = pf.run_pf(net, verbose=True)
 ```
 
 ---
@@ -324,16 +323,17 @@ idx = pf.create_dc_bus(
 | `"droop"` | Droop-controlled bus | Calculated | Follows droop law |
 
 **Voltage Convention:**
-- For symmetric monopole (+/-200 kV): use `v_base=200` (per pole)
-- For bipole (+/-400 kV): use `v_base=400` (per pole)
-- The `pol` parameter in `create_empty_network` handles the pole configuration
+- `v_base` is the **per-pole** DC voltage (kV)
+- For symmetric monopole +/-200 kV: use `v_base=200` (per pole), with `pol=2`
+- For bipole +/-400 kV: use `v_base=400` (per pole), with `pol=2`
+- The `pol` parameter in `create_empty_network` multiplies DC power by the number of poles: `P = pol * V * G * V`
 
 **DataFrame columns (`net.dc_bus`):**
 
 | Column | Type | Unit | Description |
 |--------|------|------|-------------|
 | `name` | str | - | Bus name |
-| `v_base` | float | kV | Base voltage (pole-to-pole) |
+| `v_base` | float | kV | Base voltage (per pole) |
 | `dc_grid` | int | - | DC grid identifier |
 | `bus_type` | str | - | "vdc", "p", or "droop" |
 | `v_dc_pu` | float | pu | Voltage setpoint/initial value |
@@ -569,9 +569,7 @@ P_m = D^2 * G_s * V_m^2 - D * G_s * V_m * V_c + G_shunt * V_m
 ### Running Power Flow
 
 ```python
-from acdcpf.powerflow import run_pf
-
-converged = run_pf(
+converged = pf.run_pf(
     net,                   # Network object
     verbose=False,         # Print iteration details
     tol=1e-8,              # Convergence tolerance (MW)
@@ -994,252 +992,91 @@ net = create_case33_ieee_ext()   # Extended variant
 
 ## Complete Examples
 
-### Example 1: Simple 2-Terminal HVDC
+Runnable example scripts are in the [`examples/`](../examples/) directory:
+
+| Script | Description |
+|--------|-------------|
+| [`existing_network.py`](../examples/existing_network.py) | Load a built-in test network and run power flow |
+| [`build_network.py`](../examples/build_network.py) | Build the 5-bus Stagg MTDC system from scratch, step by step |
+
+### Example 1: Using a Built-in Network
 
 ```python
-"""
-Example 1: Simple 2-Terminal HVDC System
-
-This example creates a point-to-point HVDC link connecting two AC buses.
-One converter controls DC voltage, the other controls power.
-"""
 import acdcpf as pf
-from acdcpf.powerflow import run_pf
+from acdcpf.networks import create_case5_stagg_mtdc_droop
 
-# Create network
-net = pf.create_empty_network(name="Simple HVDC", s_base=100.0, f_hz=50.0)
+net = create_case5_stagg_mtdc_droop()
+converged = pf.run_pf(net, verbose=True)
 
-# === AC System ===
-# Add AC buses
-ac_slack = pf.create_ac_bus(net, vr_kv=400.0, name="AC-Slack")
-ac_load = pf.create_ac_bus(net, vr_kv=400.0, name="AC-Load")
-
-# Add AC transmission line (100 km)
-pf.create_ac_line(net,
-    from_bus=ac_slack, to_bus=ac_load,
-    length_km=100.0,
-    r_ohm_per_km=0.025,
-    x_ohm_per_km=0.30,
-    b_us_per_km=4.0,
-    name="AC-Line-1"
-)
-
-# Add generator at slack bus
-pf.create_ac_gen(net, bus=ac_slack, p_mw=0.0, v_pu=1.02, name="Slack-Gen")
-
-# Add load at load bus
-pf.create_ac_load(net, bus=ac_load, p_mw=800.0, q_mvar=200.0, name="Main-Load")
-
-# === DC System ===
-# Add DC buses
-dc_rect = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="p",
-                           v_dc_pu=1.0, name="DC-Rectifier")
-dc_inv = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
-                          v_dc_pu=1.0, name="DC-Inverter")
-
-# Add DC line (200 km submarine cable)
-pf.create_dc_line(net,
-    from_bus=dc_rect, to_bus=dc_inv,
-    length_km=200.0,
-    r_ohm_per_km=0.01,
-    name="DC-Cable"
-)
-
-# === VSC Converters ===
-# Rectifier: P control at 600 MW
-pf.create_vsc(net,
-    ac_bus=ac_slack, dc_bus=dc_rect,
-    s_mva=800.0,
-    control_mode="p_q",
-    p_mw=600.0,
-    q_mvar=0.0,
-    loss_a=1.0,
-    r_tf_pu=0.01,
-    x_tf_pu=0.12,
-    name="VSC-Rectifier"
-)
-
-# Inverter: Vdc control at 1.0 pu
-pf.create_vsc(net,
-    ac_bus=ac_load, dc_bus=dc_inv,
-    s_mva=800.0,
-    control_mode="vdc_q",
-    v_dc_pu=1.0,
-    q_mvar=50.0,  # Provide some reactive power support
-    loss_a=1.0,
-    r_tf_pu=0.01,
-    x_tf_pu=0.12,
-    name="VSC-Inverter"
-)
-
-# === Run Power Flow ===
-print("Running power flow...")
-converged = run_pf(net, verbose=True, tol=1e-6)
-
-# === Display Results ===
-print(f"\nConverged: {converged}")
-print("\n=== AC Bus Results ===")
 print(net.res_ac_bus)
-print("\n=== DC Bus Results ===")
 print(net.res_dc_bus)
-print("\n=== VSC Results ===")
 print(net.res_vsc)
-print("\n=== DC Line Results ===")
-print(net.res_dc_line)
 ```
 
-### Example 2: Multi-Terminal DC with Droop Control
+### Example 2: Building a Network from Scratch
+
+This example builds the 5-bus Stagg system with a 3-terminal MTDC grid and Vdc slack control. See [`examples/build_network.py`](../examples/build_network.py) for the fully commented version.
 
 ```python
-"""
-Example 2: 3-Terminal DC Grid with Droop Control
-
-This example demonstrates:
-- Multiple converters sharing power via droop control
-- One Vdc-slack converter for voltage reference
-- Two droop converters for power sharing
-"""
 import acdcpf as pf
-from acdcpf.powerflow import run_pf
 
-net = pf.create_empty_network(name="3-Terminal MTDC", s_base=100.0)
+net = pf.create_empty_network(name="Case5 Stagg MTDC Slack", s_base=100.0, pol=2)
 
-# === AC Systems (3 independent grids) ===
-# Grid A: Generation
-ac_a = pf.create_ac_bus(net, vr_kv=400.0, name="AC-A")
-pf.create_ac_gen(net, bus=ac_a, p_mw=0.0, v_pu=1.0, name="Gen-A")
-pf.create_ac_load(net, bus=ac_a, p_mw=-500.0, q_mvar=0.0, name="Gen-A-equiv")
+base_kv = 345.0
+z_base = base_kv**2 / net.s_base
+y_base = 1.0 / z_base
 
-# Grid B: Load center 1
-ac_b = pf.create_ac_bus(net, vr_kv=400.0, name="AC-B")
-pf.create_ac_gen(net, bus=ac_b, p_mw=0.0, v_pu=1.0, name="Gen-B")
-pf.create_ac_load(net, bus=ac_b, p_mw=300.0, q_mvar=100.0, name="Load-B")
+# AC buses
+b1 = pf.create_ac_bus(net, vr_kv=base_kv, name="Bus 1")
+b2 = pf.create_ac_bus(net, vr_kv=base_kv, name="Bus 2")
+b3 = pf.create_ac_bus(net, vr_kv=base_kv, name="Bus 3")
+b4 = pf.create_ac_bus(net, vr_kv=base_kv, name="Bus 4")
+b5 = pf.create_ac_bus(net, vr_kv=base_kv, name="Bus 5")
 
-# Grid C: Load center 2
-ac_c = pf.create_ac_bus(net, vr_kv=400.0, name="AC-C")
-pf.create_ac_gen(net, bus=ac_c, p_mw=0.0, v_pu=1.0, name="Gen-C")
-pf.create_ac_load(net, bus=ac_c, p_mw=200.0, q_mvar=50.0, name="Load-C")
+# AC loads
+pf.create_ac_load(net, bus=b2, p_mw=20.0,  q_mvar=10.0)
+pf.create_ac_load(net, bus=b3, p_mw=45.0,  q_mvar=15.0)
+pf.create_ac_load(net, bus=b4, p_mw=40.0,  q_mvar=5.0)
+pf.create_ac_load(net, bus=b5, p_mw=60.0,  q_mvar=10.0)
 
-# === DC Grid ===
-# DC Bus A: Connected to generation, Vdc slack
-dc_a = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
-                        v_dc_pu=1.0, name="DC-A")
-# DC Bus B: Droop controlled
-dc_b = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="droop",
-                        v_dc_pu=1.0, name="DC-B")
-# DC Bus C: Droop controlled
-dc_c = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="droop",
-                        v_dc_pu=1.0, name="DC-C")
+# AC generators (v_pu makes them PV buses; first PV = slack)
+pf.create_ac_gen(net, bus=b1, p_mw=0.0,  v_pu=1.06)
+pf.create_ac_gen(net, bus=b2, p_mw=40.0, v_pu=1.00)
 
-# DC lines (star topology: A is hub)
-pf.create_dc_line(net, dc_a, dc_b, length_km=150.0, r_ohm_per_km=0.012, name="DC-A-B")
-pf.create_dc_line(net, dc_a, dc_c, length_km=200.0, r_ohm_per_km=0.012, name="DC-A-C")
+# AC lines (using length_km=1.0 so per-km values = total values)
+for fbus, tbus, r, x, b in [
+    (b1,b2,0.02,0.06,0.06), (b1,b3,0.08,0.24,0.05), (b2,b3,0.06,0.18,0.04),
+    (b2,b4,0.06,0.18,0.04), (b2,b5,0.04,0.12,0.03), (b3,b4,0.01,0.03,0.02),
+    (b4,b5,0.08,0.24,0.05),
+]:
+    pf.create_ac_line(net, fbus, tbus, length_km=1.0,
+                      r_ohm_per_km=r*z_base, x_ohm_per_km=x*z_base,
+                      b_us_per_km=b*y_base*1e6)
 
-# === VSC Converters ===
-# VSC-A: Vdc control (slack)
-pf.create_vsc(net, ac_bus=ac_a, dc_bus=dc_a, s_mva=600.0,
-              control_mode="vdc_vac", v_dc_pu=1.0, v_ac_pu=1.0,
-              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.6, name="VSC-A")
+# DC buses (one "vdc" slack per DC grid, rest are "p")
+dc1 = pf.create_dc_bus(net, v_base=base_kv, dc_grid=1, bus_type="p",   v_dc_pu=1.0)
+dc2 = pf.create_dc_bus(net, v_base=base_kv, dc_grid=1, bus_type="vdc", v_dc_pu=1.0)
+dc3 = pf.create_dc_bus(net, v_base=base_kv, dc_grid=1, bus_type="p",   v_dc_pu=1.0)
 
-# VSC-B: Droop control (P0=-200 MW, k=0.02 kV/MW)
-pf.create_vsc(net, ac_bus=ac_b, dc_bus=dc_b, s_mva=400.0,
-              control_mode="droop_vac", v_ac_pu=1.0,
-              droop_kv_per_mw=0.02,
-              p_dc_set_mw=-200.0,  # Target inverter mode
-              v_dc_set_pu=1.0,
-              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.4, name="VSC-B")
+# DC lines (resistive only)
+for fbus, tbus, r_pu in [(dc1,dc2,0.052), (dc2,dc3,0.052), (dc1,dc3,0.073)]:
+    pf.create_dc_line(net, fbus, tbus, length_km=1.0, r_ohm_per_km=r_pu*z_base)
 
-# VSC-C: Droop control (P0=-150 MW, k=0.02 kV/MW)
-pf.create_vsc(net, ac_bus=ac_c, dc_bus=dc_c, s_mva=300.0,
-              control_mode="droop_vac", v_ac_pu=1.0,
-              droop_kv_per_mw=0.02,
-              p_dc_set_mw=-150.0,
-              v_dc_set_pu=1.0,
-              r_tf_pu=0.01, x_tf_pu=0.1, loss_a=0.3, name="VSC-C")
+# VSC converters
+# p_mw > 0 = rectifier (AC->DC), p_mw < 0 = inverter (DC->AC)
+conv_params = dict(s_mva=120.0, r_tf_pu=0.0015, x_tf_pu=0.1121,
+                   r_c_pu=0.0001, x_c_pu=0.16428, b_filter_pu=0.0887,
+                   loss_a=1.103, loss_b=0.887, loss_c=2.885, loss_c_inv=4.371)
 
-# === Run and analyze ===
-converged = run_pf(net, verbose=True)
+pf.create_vsc(net, ac_bus=b2, dc_bus=dc1, control_mode="p_q",
+              p_mw=60.0, q_mvar=40.0, **conv_params)
+pf.create_vsc(net, ac_bus=b3, dc_bus=dc2, control_mode="vdc_vac",
+              v_dc_pu=1.0, v_ac_pu=1.0, **conv_params)
+pf.create_vsc(net, ac_bus=b5, dc_bus=dc3, control_mode="p_q",
+              p_mw=-35.0, q_mvar=-5.0, **conv_params)
 
-print(f"\nConverged: {converged}")
-print("\n=== VSC Power Sharing ===")
-for idx, row in net.vsc.iterrows():
-    p_ac = net.res_vsc.loc[idx, 'p_ac_mw']
-    p_dc = net.res_vsc.loc[idx, 'p_dc_mw']
-    mode = "Rectifier" if p_ac > 0 else "Inverter"
-    print(f"{row['name']}: P_ac={p_ac:.1f} MW, P_dc={p_dc:.1f} MW ({mode})")
-
-print("\n=== DC Voltages ===")
-for idx, row in net.dc_bus.iterrows():
-    v_pu = net.res_dc_bus.loc[idx, 'v_dc_pu']
-    print(f"{row['name']}: V_dc={v_pu:.4f} pu")
-```
-
-### Example 3: Offshore Wind Integration
-
-```python
-"""
-Example 3: Offshore Wind Farm Integration
-
-This example models an offshore wind farm connected to onshore grid via HVDC.
-The offshore converter controls AC voltage for the wind farm.
-"""
-import acdcpf as pf
-from acdcpf.powerflow import run_pf
-
-net = pf.create_empty_network(name="Offshore Wind HVDC", s_base=100.0)
-
-# === Onshore AC System (380 kV) ===
-ac_onshore = pf.create_ac_bus(net, vr_kv=380.0, name="Onshore-PCC")
-pf.create_ac_gen(net, bus=ac_onshore, p_mw=0.0, v_pu=1.0, name="Grid-Equiv")
-pf.create_ac_load(net, bus=ac_onshore, p_mw=1000.0, q_mvar=300.0, name="Onshore-Load")
-
-# === Offshore AC System (66 kV collection) ===
-ac_offshore = pf.create_ac_bus(net, vr_kv=66.0, name="Offshore-Collection")
-# Wind farm as negative load (generation)
-pf.create_ac_load(net, bus=ac_offshore, p_mw=-500.0, q_mvar=0.0, name="Wind-Farm")
-
-# === DC System (+/-320 kV submarine) ===
-dc_offshore = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="p",
-                               v_dc_pu=1.0, name="DC-Offshore")
-dc_onshore = pf.create_dc_bus(net, v_base=320.0, dc_grid=0, bus_type="vdc",
-                              v_dc_pu=1.0, name="DC-Onshore")
-
-# Submarine DC cable (100 km)
-pf.create_dc_line(net, dc_offshore, dc_onshore, length_km=100.0,
-                  r_ohm_per_km=0.01, name="Submarine-Cable")
-
-# === VSC Converters ===
-# Offshore: P-Vac control (AC voltage for wind farm, P follows wind)
-# P is 0 because wind injects into the bus, VSC just passes it through
-pf.create_vsc(net, ac_bus=ac_offshore, dc_bus=dc_offshore, s_mva=600.0,
-              control_mode="p_vac",
-              p_mw=0.0,  # Wind injects, VSC balances
-              v_ac_pu=1.0,
-              r_tf_pu=0.01, x_tf_pu=0.15,
-              loss_a=0.6, name="VSC-Offshore")
-
-# Onshore: Vdc-Vac control
-pf.create_vsc(net, ac_bus=ac_onshore, dc_bus=dc_onshore, s_mva=600.0,
-              control_mode="vdc_vac",
-              v_dc_pu=1.0,
-              v_ac_pu=1.0,
-              r_tf_pu=0.01, x_tf_pu=0.15,
-              loss_a=0.6, name="VSC-Onshore")
-
-# === Run power flow ===
-converged = run_pf(net, verbose=True)
-
-print(f"\nConverged: {converged}")
-print("\n=== Power Transfer ===")
-offshore_p = net.res_vsc.loc[0, 'p_ac_mw']
-onshore_p = net.res_vsc.loc[1, 'p_ac_mw']
-losses = offshore_p + onshore_p  # Should be negative (rectifier + inverter)
-cable_loss = net.res_dc_line.loc[0, 'p_loss_mw']
-
-print(f"Offshore VSC: {offshore_p:.1f} MW (rectifying wind power)")
-print(f"Onshore VSC: {onshore_p:.1f} MW (delivering to grid)")
-print(f"Cable losses: {cable_loss:.2f} MW")
-print(f"VSC losses: {abs(offshore_p) - abs(onshore_p) - cable_loss:.2f} MW")
+converged = pf.run_pf(net, verbose=True)
+print(net.res_vsc)
 ```
 
 ---
@@ -1342,6 +1179,11 @@ from acdcpf.networks import (
 - Check DC line resistances
 - Consider adding reactive power support at AC buses
 
+**4. ImportError or AttributeError from PyPower with NumPy 2.x**
+- PyPower uses `numpy.in1d` which was removed in NumPy 2.0
+- ACDCPF patches this automatically at import time (`np.in1d = np.isin`)
+- If you see this error, make sure you `import acdcpf` before importing pypower directly
+
 ---
 
 ## References
@@ -1351,6 +1193,4 @@ from acdcpf.networks import (
 
 ---
 
-*ACDCPF - Hybrid AC/DC Power Flow Library*
-*Version 0.1.0*
-*MIT License*
+*ACDCPF - Hybrid AC/DC Power Flow Library — MIT License*

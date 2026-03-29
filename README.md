@@ -2,7 +2,7 @@
 
 **Hybrid AC/DC Power Flow Library**
 
-A Python library for steady-state power flow analysis in hybrid AC/DC networks, implementing the sequential AC/DC power flow method based on [Beerten et al. (2012)](#references).
+A Python library for steady-state power flow analysis in hybrid AC/DC networks, implementing the sequential AC/DC power flow method based on [Beerten et al. (2012)](#references). It solves the coupled AC and DC power balance equations iteratively, computing bus voltages, power injections, converter operating points, and system losses across interconnected AC and DC grids.
 
 ## Features
 
@@ -15,17 +15,17 @@ A Python library for steady-state power flow analysis in hybrid AC/DC networks, 
 
 ## Installation
 
+Requires **Python 3.9+**.
+
 ```bash
-git clone https://github.com/your-username/acdcpf.git
+git clone https://github.com/slazar394/acdcpf.git
 cd acdcpf
 pip install -e .
 ```
 
-Or install dependencies only:
+This installs all dependencies automatically (NumPy, SciPy, Pandas, PyPower).
 
-```bash
-pip install numpy scipy pandas pypower
-```
+> **NumPy 2.x note:** PyPower uses `numpy.in1d` which was removed in NumPy 2.0. ACDCPF patches this automatically, so no action is needed on your part.
 
 ## Quick Start
 
@@ -74,6 +74,8 @@ pf.create_vsc(net, ac_bus=b1, dc_bus=dc1, s_mva=600,
 converged = pf.run_pf(net, verbose=True)
 ```
 
+See [`examples/`](examples/) for complete runnable scripts, including a step-by-step network build with detailed comments.
+
 ## Built-in Test Networks
 
 | Function | Description |
@@ -114,7 +116,7 @@ acdcpf/
 │   ├── powerflow/          # AC, DC, and sequential solvers
 │   └── results/            # Result processing and export
 ├── tests/                  # Test suite
-├── examples/               # Usage examples and validation scripts
+├── examples/               # Runnable usage examples
 ├── docs/                   # Documentation
 ├── pyproject.toml          # Package configuration
 ├── LICENSE                 # MIT License
