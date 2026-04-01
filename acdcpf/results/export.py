@@ -28,8 +28,10 @@ def export_results_to_csv(net: Network, directory: Union[str, Path]) -> None:
     result_dfs = {
         "res_ac_bus": net.res_ac_bus,
         "res_ac_line": net.res_ac_line,
+        "res_ac_gen": net.res_ac_gen,
         "res_dc_bus": net.res_dc_bus,
         "res_dc_line": net.res_dc_line,
+        "res_dc_gen": net.res_dc_gen,
         "res_vsc": net.res_vsc,
         "res_dcdc": net.res_dcdc,
     }
@@ -61,8 +63,10 @@ def export_results_to_json(net: Network, filepath: Union[str, Path]) -> None:
     result_dfs = {
         "res_ac_bus": net.res_ac_bus,
         "res_ac_line": net.res_ac_line,
+        "res_ac_gen": net.res_ac_gen,
         "res_dc_bus": net.res_dc_bus,
         "res_dc_line": net.res_dc_line,
+        "res_dc_gen": net.res_dc_gen,
         "res_vsc": net.res_vsc,
         "res_dcdc": net.res_dcdc,
     }

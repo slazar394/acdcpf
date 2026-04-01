@@ -61,6 +61,28 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
     else:
         net.res_ac_bus = pd.DataFrame(columns=["name", "v_pu", "v_angle_deg", "p_mw", "q_mvar"])
 
+    # --- AC Generator Results ---
+    gen_results = []
+    if not net.ac_gen.empty:
+        for idx in net.ac_gen.index:
+            gen = net.ac_gen.loc[idx]
+            if not gen["in_service"]:
+                continue
+            bus = int(gen["bus"])
+            vm = v_mag[bus] if bus < len(v_mag) else 1.0
+            gen_results.append({
+                "name": gen.get("name", ""),
+                "bus": bus,
+                "p_mw": float(gen["p_mw"]),
+                "q_mvar": float(gen["q_mvar"]),
+                "v_pu": vm,
+            })
+
+    if gen_results:
+        net.res_ac_gen = pd.DataFrame(gen_results, index=net.ac_gen[net.ac_gen["in_service"] == True].index)
+    else:
+        net.res_ac_gen = pd.DataFrame(columns=["name", "bus", "p_mw", "q_mvar", "v_pu"])
+
     # --- AC Line Results ---
     line_results = []
     for idx in net.ac_line.index:
@@ -208,6 +230,29 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
         net.res_dc_bus = pd.DataFrame(bus_results, index=net.dc_bus[net.dc_bus["in_service"] == True].index)
     else:
         net.res_dc_bus = pd.DataFrame(columns=["name", "v_dc_pu", "v_dc_kv", "p_mw"])
+
+    # --- DC Generator Results ---
+    gen_results = []
+    if not net.dc_gen.empty:
+        for idx in net.dc_gen.index:
+            gen = net.dc_gen.loc[idx]
+            if not gen["in_service"]:
+                continue
+            bus = int(gen["bus"])
+            v_pu = v_dc[bus] if bus < len(v_dc) else 1.0
+            v_base = float(net.dc_bus.loc[bus, "v_base"])
+            gen_results.append({
+                "name": gen.get("name", ""),
+                "bus": bus,
+                "p_mw": float(gen["p_mw"]),
+                "v_dc_pu": v_pu,
+                "v_dc_kv": v_pu * v_base,
+            })
+
+    if gen_results:
+        net.res_dc_gen = pd.DataFrame(gen_results, index=net.dc_gen[net.dc_gen["in_service"] == True].index)
+    else:
+        net.res_dc_gen = pd.DataFrame(columns=["name", "bus", "p_mw", "v_dc_pu", "v_dc_kv"])
 
     # --- DC Line Results ---
     line_results = []

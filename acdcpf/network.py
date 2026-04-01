@@ -55,6 +55,10 @@ class Network:
         DC bus results
     res_dc_line : pd.DataFrame
         DC line results
+    res_ac_gen : pd.DataFrame
+        AC generator results
+    res_dc_gen : pd.DataFrame
+        DC generator results
     res_vsc : pd.DataFrame
         VSC converter results
     res_dcdc : pd.DataFrame
@@ -91,6 +95,8 @@ class Network:
     res_ac_line: pd.DataFrame = field(default_factory=pd.DataFrame)
     res_dc_bus: pd.DataFrame = field(default_factory=pd.DataFrame)
     res_dc_line: pd.DataFrame = field(default_factory=pd.DataFrame)
+    res_ac_gen: pd.DataFrame = field(default_factory=pd.DataFrame)
+    res_dc_gen: pd.DataFrame = field(default_factory=pd.DataFrame)
     res_vsc: pd.DataFrame = field(default_factory=pd.DataFrame)
     res_dcdc: pd.DataFrame = field(default_factory=pd.DataFrame)
 
