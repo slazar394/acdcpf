@@ -144,9 +144,10 @@ def _net_to_ppc(net: Network, island_buses: List[int],
 
     # --- Build generator matrix ---
     gen_list = []
+    gen_idx_map = []  # maps pypower gen row index -> net.ac_gen DataFrame index
     if not net.ac_gen.empty:
         gens = net.ac_gen[net.ac_gen["in_service"] == True]
-        for _, gen in gens.iterrows():
+        for gen_df_idx, gen in gens.iterrows():
             bus_ext = int(gen["bus"])
             if bus_ext not in ext2int:
                 continue
@@ -169,6 +170,7 @@ def _net_to_ppc(net: Network, island_buses: List[int],
             g[PMAX] = 9999.0
             g[PMIN] = -9999.0
             gen_list.append(g)
+            gen_idx_map.append(gen_df_idx)
 
     # Add dummy generators for Vac-controlling VSCs
     for ac_bus_ext, v_set in vsc_v_control.items():
@@ -282,7 +284,7 @@ def _net_to_ppc(net: Network, island_buses: List[int],
         "branch": branch_data,
     }
 
-    return ppc
+    return ppc, gen_idx_map
 
 
 def _ppc_to_results(ppc: dict, island_buses: List[int],
@@ -305,6 +307,30 @@ def _ppc_to_results(ppc: dict, island_buses: List[int],
     for i, ext_idx in enumerate(island_buses):
         v_mag[ext_idx] = bus_result[i, VM]
         v_ang[ext_idx] = bus_result[i, VA] * np.pi / 180.0  # deg -> rad
+
+
+def _update_gen_from_ppc(net: Network, ppc: dict, gen_idx_map: List[int]):
+    """
+    Write solved generator P and Q from pypower back into net.ac_gen.
+
+    Parameters
+    ----------
+    net : Network
+        The network object
+    ppc : dict
+        Solved pypower case
+    gen_idx_map : list of int
+        Mapping from pypower gen row index to net.ac_gen DataFrame index
+    """
+    if net.ac_gen.empty or not gen_idx_map:
+        return
+    gen_result = ppc.get("gen")
+    if gen_result is None:
+        return
+    for ppc_gen_row, df_idx in enumerate(gen_idx_map):
+        if ppc_gen_row < len(gen_result):
+            net.ac_gen.at[df_idx, "p_mw"] = gen_result[ppc_gen_row, PG]
+            net.ac_gen.at[df_idx, "q_mvar"] = gen_result[ppc_gen_row, QG]
 
 
 def run_ac_pf(
@@ -376,7 +402,7 @@ def run_ac_pf(
     net._ppc_results = {}
     for island_buses in islands:
         # Build pypower case for this island
-        ppc = _net_to_ppc(net, island_buses, p_vsc, q_vsc, vsc_v_control)
+        ppc, gen_idx_map = _net_to_ppc(net, island_buses, p_vsc, q_vsc, vsc_v_control)
 
         # Run pypower power flow
         result, success = runpf(ppc, ppopt)
@@ -386,6 +412,9 @@ def run_ac_pf(
 
         # Extract results
         _ppc_to_results(result, island_buses, v_mag, v_ang)
+
+        # Update generator P/Q from solved pypower results
+        _update_gen_from_ppc(net, result, gen_idx_map)
 
         # Store solved ppc for Q extraction
         net._ppc_results[tuple(island_buses)] = result

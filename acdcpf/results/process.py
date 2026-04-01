@@ -49,6 +49,7 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
             q_gen = bus_gens["q_mvar"].astype(float).sum()
 
         bus_results.append({
+            "name": row.get("name", ""),
             "v_pu": vm,
             "v_angle_deg": np.degrees(va),
             "p_mw": p_gen - p_load,
@@ -58,7 +59,7 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
     if bus_results:
         net.res_ac_bus = pd.DataFrame(bus_results, index=net.ac_bus[net.ac_bus["in_service"] == True].index)
     else:
-        net.res_ac_bus = pd.DataFrame(columns=["v_pu", "v_angle_deg", "p_mw", "q_mvar"])
+        net.res_ac_bus = pd.DataFrame(columns=["name", "v_pu", "v_angle_deg", "p_mw", "q_mvar"])
 
     # --- AC Line Results ---
     line_results = []
@@ -125,6 +126,7 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
             loading = 0.0
 
         line_results.append({
+            "name": row.get("name", ""),
             "p_from_mw": p_from,
             "q_from_mvar": q_from,
             "p_to_mw": p_to,
@@ -142,7 +144,7 @@ def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> No
         )
     else:
         net.res_ac_line = pd.DataFrame(
-            columns=["p_from_mw", "q_from_mvar", "p_to_mw", "q_to_mvar",
+            columns=["name", "p_from_mw", "q_from_mvar", "p_to_mw", "q_to_mvar",
                       "p_loss_mw", "q_loss_mvar", "i_ka", "loading_percent"]
         )
 
@@ -196,6 +198,7 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
             p_mw += gens["p_mw"].astype(float).sum()
 
         bus_results.append({
+            "name": row.get("name", ""),
             "v_dc_pu": v_pu,
             "v_dc_kv": v_kv,
             "p_mw": p_mw,
@@ -204,7 +207,7 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
     if bus_results:
         net.res_dc_bus = pd.DataFrame(bus_results, index=net.dc_bus[net.dc_bus["in_service"] == True].index)
     else:
-        net.res_dc_bus = pd.DataFrame(columns=["v_dc_pu", "v_dc_kv", "p_mw"])
+        net.res_dc_bus = pd.DataFrame(columns=["name", "v_dc_pu", "v_dc_kv", "p_mw"])
 
     # --- DC Line Results ---
     line_results = []
@@ -239,11 +242,20 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
         i_base = net.s_base / v_base  # kA base
         i_ka = abs(i_pu) * i_base
 
+        # Loading percent
+        max_i = row.get("max_i_ka")
+        if max_i is not None and not (isinstance(max_i, float) and np.isnan(max_i)) and float(max_i) > 0:
+            loading = abs(i_ka) / float(max_i) * 100
+        else:
+            loading = 0.0
+
         line_results.append({
+            "name": row.get("name", ""),
             "p_from_mw": p_from,
             "p_to_mw": p_to,
             "p_loss_mw": p_loss,
             "i_ka": i_ka,
+            "loading_percent": loading,
         })
 
     if line_results:
@@ -252,7 +264,7 @@ def process_dc_results(net: Network, v_dc: np.ndarray) -> None:
             index=net.dc_line[net.dc_line["in_service"] == True].index,
         )
     else:
-        net.res_dc_line = pd.DataFrame(columns=["p_from_mw", "p_to_mw", "p_loss_mw", "i_ka"])
+        net.res_dc_line = pd.DataFrame(columns=["name", "p_from_mw", "p_to_mw", "p_loss_mw", "i_ka", "loading_percent"])
 
 
 def process_converter_results(net: Network) -> None:
@@ -297,6 +309,7 @@ def process_converter_results(net: Network) -> None:
             i_ac_ka = s_ac / (np.sqrt(3) * vr_kv * v_ac) if vr_kv * v_ac > 0 else 0.0
 
             vsc_results.append({
+                "name": row.get("name", ""),
                 "p_ac_mw": p_ac,
                 "q_ac_mvar": q_ac,
                 "p_dc_mw": p_dc,
@@ -314,7 +327,7 @@ def process_converter_results(net: Network) -> None:
         )
     else:
         net.res_vsc = pd.DataFrame(
-            columns=["p_ac_mw", "q_ac_mvar", "p_dc_mw", "p_loss_mw",
+            columns=["name", "p_ac_mw", "q_ac_mvar", "p_dc_mw", "p_loss_mw",
                       "v_ac_pu", "v_dc_pu", "v_converter_pu", "i_ac_ka"]
         )
 
@@ -356,6 +369,7 @@ def process_converter_results(net: Network) -> None:
             p_loss_mw = p_from_mw + p_to_mw
 
             dcdc_results.append({
+                "name": row.get("name", ""),
                 "p_from_mw": p_from_mw,
                 "p_to_mw": p_to_mw,
                 "p_loss_mw": p_loss_mw,
@@ -367,4 +381,4 @@ def process_converter_results(net: Network) -> None:
             index=net.dcdc[net.dcdc["in_service"] == True].index,
         )
     else:
-        net.res_dcdc = pd.DataFrame(columns=["p_from_mw", "p_to_mw", "p_loss_mw"])
+        net.res_dcdc = pd.DataFrame(columns=["name", "p_from_mw", "p_to_mw", "p_loss_mw"])
