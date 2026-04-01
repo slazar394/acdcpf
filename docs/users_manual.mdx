@@ -11,14 +11,15 @@
 1. [Introduction](#introduction)
 2. [Installation](#installation)
 3. [Quick Start](#quick-start)
-4. [Network Data Model](#network-data-model)
-5. [Element Creation API](#element-creation-api)
-6. [Power Flow Analysis](#power-flow-analysis)
-7. [Algorithms and Theory](#algorithms-and-theory)
-8. [Results and Output](#results-and-output)
-9. [Built-in Test Networks](#built-in-test-networks)
-10. [Complete Examples](#complete-examples)
-11. [API Reference](#api-reference)
+4. [Importing from External Formats](#importing-from-external-formats)
+5. [Network Data Model](#network-data-model)
+6. [Element Creation API](#element-creation-api)
+7. [Power Flow Analysis](#power-flow-analysis)
+8. [Algorithms and Theory](#algorithms-and-theory)
+9. [Results and Output](#results-and-output)
+10. [Built-in Test Networks](#built-in-test-networks)
+11. [Complete Examples](#complete-examples)
+12. [API Reference](#api-reference)
 
 ---
 
@@ -121,6 +122,109 @@ from acdcpf.networks import create_case5_stagg_mtdc_droop
 net = create_case5_stagg_mtdc_droop()
 converged = pf.run_pf(net, verbose=True)
 ```
+
+---
+
+## Importing from External Formats
+
+The `acdcpf.io` module provides functions to create networks from MATPOWER / PyPOWER / MatACDC dictionaries, avoiding the need to manually translate large test cases element by element.
+
+### From PyPOWER / MATPOWER (AC only)
+
+`from_pypower` imports an AC-only network from a standard PyPOWER case dictionary. You can then add DC elements on top using the normal creation functions.
+
+```python
+import acdcpf as pf
+
+# Any PyPOWER / MATPOWER case dict works
+from pypower.case14 import case14
+net = pf.from_pypower(case14(), name="IEEE 14-bus")
+
+# The AC side is ready — add DC elements as needed
+dc0 = pf.create_dc_bus(net, v_base=400.0, dc_grid=0, bus_type="vdc", v_dc_pu=1.0)
+dc1 = pf.create_dc_bus(net, v_base=400.0, dc_grid=0, bus_type="p")
+pf.create_dc_line(net, dc0, dc1, length_km=100, r_ohm_per_km=0.0114)
+pf.create_vsc(net, ac_bus=0, dc_bus=dc0, s_mva=200, control_mode="vdc_q", v_dc_pu=1.0)
+pf.create_vsc(net, ac_bus=1, dc_bus=dc1, s_mva=200, control_mode="p_q", p_mw=50.0)
+
+converged = pf.run_pf(net)
+```
+
+**Parameters:**
+
+```python
+pf.from_pypower(
+    ppc,                  # PyPOWER case dict (must have "baseMVA", "bus", "gen", "branch")
+    name="",              # Network name
+    f_hz=50.0,            # System frequency (Hz)
+    s_base=None,          # Override baseMVA (default: use ppc["baseMVA"])
+    pol=2                 # DC poles for future DC elements
+) -> Network
+```
+
+**What it imports:**
+
+| ppc key | Creates | Notes |
+|---------|---------|-------|
+| `bus` | AC buses + AC loads | Pd/Qd become loads; Gs/Bs converted to pu |
+| `gen` | AC generators | Bus type (PQ/PV/slack) from bus data; Vg sets v_pu |
+| `branch` | AC lines | Per-unit r/x/b converted to Ohm/uS using from-bus kV |
+
+Bus names preserve the original MATPOWER numbering (e.g. `"Bus 14"`, `"Gen 1"`).
+
+### From MatACDC / PyACDCPF (full AC/DC)
+
+`from_matacdc` imports a complete hybrid AC/DC network from a pair of MatACDC-style dictionaries — one for the AC side (`ppc`) and one for the DC side (`pdc`).
+
+```python
+import acdcpf as pf
+
+# Import from MatACDC-style case functions
+from acdcpf.networks.case33h_ieee_AC import case33_ieee_AC
+from acdcpf.networks.case33h_ieee_DC import case33_ieee_DC
+
+ppc = case33_ieee_AC()
+pdc = case33_ieee_DC()
+net = pf.from_matacdc(ppc, pdc, name="IEEE 33-bus hybrid")
+
+converged = pf.run_pf(net, verbose=True)
+print(net.res_ac_bus)
+print(net.res_dc_bus)
+print(net.res_vsc)
+```
+
+**Parameters:**
+
+```python
+pf.from_matacdc(
+    ppc,                  # MATPOWER-format AC case dict
+    pdc,                  # MatACDC-format DC case dict
+    name="",              # Network name
+    f_hz=50.0             # System frequency (Hz)
+) -> Network
+```
+
+**What it imports:**
+
+| Source | Creates | Notes |
+|--------|---------|-------|
+| `ppc["bus"]`, `ppc["gen"]`, `ppc["branch"]` | AC buses, loads, generators, lines | Same as `from_pypower` |
+| `pdc["busdc"]` | DC buses, DC loads, DC generators | Positive Pdc = load, negative = generator |
+| `pdc["convdc"]` | VSC converters | P/Q sign negated (MatACDC gen → acdcpf load convention) |
+| `pdc["branchdc"]` (N=1) | DC lines | Resistance converted from pu to Ohm |
+| `pdc["branchdc"]` (N≠1) | DC-DC converters | d_ratio from bus base voltages |
+| `pdc["pol"]` | Network polarity | 1 = monopole, 2 = bipole |
+
+**Sign convention note:** MatACDC uses generator convention for VSC converters (`P_g > 0` = inverter, power into AC). ACDCPF uses load convention (`P_s > 0` = rectifier, power from AC into DC). The function handles this automatically.
+
+**Converter control mode mapping:**
+
+| MatACDC type_dc | MatACDC type_ac | acdcpf control_mode |
+|-----------------|-----------------|---------------------|
+| 1 (constant P)  | 1 (PQ)          | `"p_q"`             |
+| 1 (constant P)  | 2 (PV)          | `"p_vac"`           |
+| 2 (constant Vdc)| 1 (PQ)          | `"vdc_q"`           |
+| 2 (constant Vdc)| 2 (PV)          | `"vdc_vac"`         |
 
 ---
 
@@ -680,9 +784,9 @@ The VSC is modeled with four main components:
 ```
 AC Bus (V_s)                                             DC Bus (V_dc)
     │                                                        │
-    │    ┌───────────┐         ┌───────────┐                │
-    ├────┤  Z_tf     ├────┬────┤  Z_c      ├──[Converter]──┤
-    │    │ Rtf + jXtf│    │    │ Rc + jXc  │    P_loss      │
+    │    ┌───────────┐         ┌───────────┐                 │
+    ├────┤  Z_tf     ├────┬────┤  Z_c      ├──[Converter]────┤
+    │    │ Rtf + jXtf│    │    │ Rc + jXc  │    P_loss       │
     │    └───────────┘    │    └───────────┘                 │
     │                     │                                  │
     │               ┌─────┴─────┐                            │
@@ -1108,6 +1212,18 @@ acdcpf.create_empty_network(
 | `create_dc_gen(net, bus, p_mw, ...)` | Create DC generator |
 | `create_vsc(net, ac_bus, dc_bus, ...)` | Create VSC converter |
 | `create_dcdc(net, from_bus, to_bus, ...)` | Create DC-DC converter |
+
+### Import from External Formats
+
+```python
+# AC-only import from PyPOWER / MATPOWER
+acdcpf.from_pypower(ppc, name="", f_hz=50.0, s_base=None, pol=2) -> Network
+
+# Full AC/DC import from MatACDC / PyACDCPF
+acdcpf.from_matacdc(ppc, pdc, name="", f_hz=50.0) -> Network
+```
+
+Also available via `from acdcpf.io import from_pypower, from_matacdc`.
 
 ### Power Flow
 

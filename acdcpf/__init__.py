@@ -33,6 +33,7 @@ from .create import (
     create_vsc,
     create_dcdc,
 )
+from .io import from_pypower, from_matacdc
 from .powerflow import run_pf
 from .networks import create_2terminal_hvdc
 
@@ -54,6 +55,9 @@ __all__ = [
     # Converters
     "create_vsc",
     "create_dcdc",
+    # I/O (import from external formats)
+    "from_pypower",
+    "from_matacdc",
     # Power flow
     "run_pf",
     # Test networks
