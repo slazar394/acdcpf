@@ -164,8 +164,8 @@ def create_ac_gen(
     p_mw: float = 0.0,
     q_mvar: float = 0.0,
     v_pu: Optional[float] = None,
-    q_min_mvar: float = float("-inf"),
-    q_max_mvar: float = float("inf"),
+    q_min_mvar: float = -9999.0,
+    q_max_mvar: float = 9999.0,
     name: str = "",
     in_service: bool = True,
 ) -> int:
