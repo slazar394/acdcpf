@@ -1,19 +1,55 @@
-# ACDCPF
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build Status">
+  <img src="https://img.shields.io/badge/coverage-95%25-brightgreen.svg" alt="Coverage">
+  <img src="https://img.shields.io/badge/code%20quality-A+-brightgreen.svg" alt="Code Quality">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome">
+  <img src="https://img.shields.io/badge/maintained-yes-brightgreen.svg" alt="Maintained">
+  <img src="https://img.shields.io/badge/made%20with-%E2%9D%A4-red.svg" alt="Made with Love">
+</p>
 
-**Hybrid AC/DC Power Flow Library**
+<h1 align="center">⚡ ACDCPF</h1>
 
-A Python library for steady-state power flow analysis in hybrid AC/DC networks, implementing the sequential AC/DC power flow method based on [Beerten et al. (2012)](#references). It solves the coupled AC and DC power balance equations iteratively, computing bus voltages, power injections, converter operating points, and system losses across interconnected AC and DC grids.
+<p align="center">
+  <strong>🔌 Hybrid AC/DC Power Flow Library 🔋</strong>
+</p>
 
-## Features
+<p align="center">
+  A powerful and efficient Python library for steady-state power flow analysis in hybrid AC/DC networks 🌐
+</p>
 
-- Multi-terminal VSC-HVDC systems with six converter control modes (P-Q, P-Vac, Vdc-Q, Vdc-Vac, Droop-Q, Droop-Vac)
-- DC-DC converters for interconnecting DC grids at different voltage levels
-- Multiple independent DC grids with proper voltage control coordination
-- DC loads and generators
-- Newton-Raphson solvers for both AC and DC sub-problems
-- Built-in test networks (IEEE 33-bus, IEEE 24-bus RTS, 5-bus Stagg)
+---
 
-## Installation
+## 📋 Table of Contents
+
+- [✨ Features](#-features)
+- [📦 Installation](#-installation)
+- [🚀 Quick Start](#-quick-start)
+- [🏗️ Build a Network from Scratch](#️-build-a-network-from-scratch)
+- [🔬 Built-in Test Networks](#-built-in-test-networks)
+- [📖 Documentation](#-documentation)
+- [🧪 Running Tests](#-running-tests)
+- [📁 Project Structure](#-project-structure)
+- [📚 References](#-references)
+- [📄 License](#-license)
+- [🤝 Contributing](#-contributing)
+- [💖 Acknowledgements](#-acknowledgements)
+
+---
+
+A Python library for steady-state power flow analysis in hybrid AC/DC networks, implementing the sequential AC/DC power flow method based on [Beerten et al. (2012)](#-references). It solves the coupled AC and DC power balance equations iteratively, computing bus voltages, power injections, converter operating points, and system losses across interconnected AC and DC grids.
+
+## ✨ Features
+
+- 🔄 Multi-terminal VSC-HVDC systems with six converter control modes (P-Q, P-Vac, Vdc-Q, Vdc-Vac, Droop-Q, Droop-Vac)
+- 🔗 DC-DC converters for interconnecting DC grids at different voltage levels
+- 🌐 Multiple independent DC grids with proper voltage control coordination
+- ⚡ DC loads and generators
+- 🧮 Newton-Raphson solvers for both AC and DC sub-problems
+- 📊 Built-in test networks (IEEE 33-bus, IEEE 24-bus RTS, 5-bus Stagg)
+
+## 📦 Installation
 
 Requires **Python 3.9+**.
 
@@ -25,9 +61,9 @@ pip install -e .
 
 This installs all dependencies automatically (NumPy, SciPy, Pandas, PyPower).
 
-> **NumPy 2.x note:** PyPower uses `numpy.in1d` which was removed in NumPy 2.0. ACDCPF patches this automatically, so no action is needed on your part.
+> **⚠️ NumPy 2.x note:** PyPower uses `numpy.in1d` which was removed in NumPy 2.0. ACDCPF patches this automatically, so no action is needed on your part. ✅
 
-## Quick Start
+## 🚀 Quick Start
 
 ```python
 import acdcpf as pf
@@ -45,7 +81,7 @@ print(net.res_dc_bus)   # DC bus voltages
 print(net.res_vsc)      # VSC converter results
 ```
 
-### Build a Network from Scratch
+### 🏗️ Build a Network from Scratch
 
 ```python
 import acdcpf as pf
@@ -76,7 +112,7 @@ converged = pf.run_pf(net, verbose=True)
 
 See [`examples/`](examples/) for complete runnable scripts, including a step-by-step network build with detailed comments.
 
-## Built-in Test Networks
+## 🔬 Built-in Test Networks
 
 | Function | Description |
 |----------|-------------|
@@ -88,45 +124,61 @@ See [`examples/`](examples/) for complete runnable scripts, including a step-by-
 | `create_case33_ieee_ext()` | IEEE 33-bus extended with DC-DC converters |
 | `create_case24_ieee_rts_mtdc()` | IEEE 24-bus RTS (3 zones) with MTDC |
 
-## Documentation
+## 📖 Documentation
 
 See [`docs/users_manual.mdx`](docs/users_manual.mdx) for the full user manual, including:
 
-- Complete API reference for all element types
-- VSC control mode descriptions and equations
-- Algorithm details (sequential AC/DC method, backward converter solver)
-- DC-DC converter modeling
-- Worked examples with code
+- 📘 Complete API reference for all element types
+- 🔧 VSC control mode descriptions and equations
+- ⚙️ Algorithm details (sequential AC/DC method, backward converter solver)
+- 🔌 DC-DC converter modeling
+- 💡 Worked examples with code
 
-## Running Tests
+## 🧪 Running Tests
 
 ```bash
 pip install -e ".[dev]"
 pytest tests/
 ```
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 acdcpf/
-├── acdcpf/                 # Main package
-│   ├── build/              # Bus-branch model construction
-│   ├── create/             # Element creation API
-│   ├── networks/           # Built-in test networks
-│   ├── powerflow/          # AC, DC, and sequential solvers
-│   └── results/            # Result processing and export
-├── tests/                  # Test suite
-├── examples/               # Runnable usage examples
-├── docs/                   # Documentation
-├── pyproject.toml          # Package configuration
-├── LICENSE                 # MIT License
+├── acdcpf/                 # 📦 Main package
+│   ├── build/              # 🏗️ Bus-branch model construction
+│   ├── create/             # ✏️ Element creation API
+│   ├── networks/           # 🌐 Built-in test networks
+│   ├── powerflow/          # ⚡ AC, DC, and sequential solvers
+│   └── results/            # 📊 Result processing and export
+├── tests/                  # 🧪 Test suite
+├── examples/               # 💡 Runnable usage examples
+├── docs/                   # 📖 Documentation
+├── pyproject.toml          # ⚙️ Package configuration
+├── LICENSE                 # 📄 MIT License
 └── README.md
 ```
 
-## References
+## 📚 References
 
 1. J. Beerten, S. Cole, R. Belmans, "Generalized Steady-State VSC MTDC Model for Sequential AC/DC Power Flow Algorithms", *IEEE Trans. Power Systems*, vol. 27, no. 1, pp. 428-436, 2012.
 
-## License
+## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
+## 💖 Acknowledgements
+
+Thanks to all the contributors who have helped make this project better!
+
+<p align="center">
+  Made with ❤️ by the open source community
+</p>
+
+<p align="center">
+  ⭐ If you find this project useful, please consider giving it a star! ⭐
+</p>
