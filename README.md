@@ -11,6 +11,7 @@ A Python library for steady-state power flow analysis in hybrid AC/DC networks, 
 - Multiple independent DC grids with proper voltage control coordination
 - DC loads and generators
 - Newton-Raphson solvers for both AC and DC sub-problems
+- Converter limit enforcement via the MatACDC PQ-capability diagram (current/voltage limits) with control-mode switching on violation
 - Built-in test networks (IEEE 33-bus, IEEE 24-bus RTS, 5-bus Stagg)
 
 ## Installation

@@ -552,6 +552,9 @@ idx = pf.create_vsc(
     x_c_pu=0.0,                # Phase reactor reactance (pu)
     b_filter_pu=0.05,          # Filter susceptance (pu)
     loss_base_kv=None,         # AC base voltage for loss calc (kV)
+    i_max_pu=1.1,              # Max converter current, Icmax (pu)
+    vc_max_pu=1.2,             # Max converter voltage, Vcmax (pu)
+    vc_min_pu=0.85,            # Min converter voltage, Vcmin (pu)
     in_service=True,           # Converter in service
     name="VSC1"                # Converter name
 )
@@ -625,6 +628,9 @@ When a VSC with AC voltage control (`p_vac`, `vdc_vac`, `droop_vac`) is connecte
 | `x_c_pu` | float | pu | Phase reactor reactance |
 | `b_filter_pu` | float | pu | Filter susceptance |
 | `loss_base_kv` | float | kV | AC base voltage for loss calc |
+| `i_max_pu` | float | pu | Max converter current, Icmax (limit enforcement) |
+| `vc_max_pu` | float | pu | Max converter voltage, Vcmax (limit enforcement) |
+| `vc_min_pu` | float | pu | Min converter voltage, Vcmin (limit enforcement) |
 | `in_service` | bool | - | Converter status |
 
 ### DC-DC Converters
