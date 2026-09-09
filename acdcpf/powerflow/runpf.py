@@ -22,6 +22,7 @@ def run_pf(
     max_iter_inner: int = 30,
     tol: float = 1e-8,
     verbose: bool = False,
+    enforce_limits: bool = True,
 ) -> bool:
     """
     Run sequential AC/DC power flow.
@@ -42,6 +43,11 @@ def run_pf(
         Convergence tolerance (default: 1e-8)
     verbose : bool, optional
         Print iteration info (default: False)
+    enforce_limits : bool, optional
+        Enforce converter current/voltage limits via the MatACDC
+        PQ-capability diagram, switching control modes on violation
+        (default: True). Set False to solve without limit enforcement
+        (matching MatACDC's ``limac = 0`` option).
 
     Returns
     -------
@@ -77,11 +83,19 @@ def run_pf(
     net._v_ang = v_ang
     net._v_dc = v_dc
 
+    # Latches for control-mode switching on converter-limit violations
+    # (persist across outer iterations, like MatACDC).
+    net._vsc_vcontrol_disabled = set()  # VSCs that dropped AC-voltage control
+    net._vsc_droop_disabled = set()     # droop VSCs switched to constant-P
+
     # Initialize converter powers
     _initialize_converter_powers(net)
 
     # Main sequential AC/DC iteration loop
     converged = False
+    # Track subproblem convergence. Absent subsystems count as converged.
+    ac_conv = True
+    dc_conv = True
     for outer_iter in range(1, max_iter_outer + 1):
         p_s_old = net._p_s.copy()
 
@@ -103,6 +117,14 @@ def run_pf(
 
             # Extract Q from Vac-controlling VSCs (from pypower result)
             _extract_vsc_q_from_ac(net, vsc_v_control)
+
+        # --- Step 1b: Enforce converter limits (PQ-capability diagram) ---
+        # Clamps non-slack VSC setpoints onto the converter capability region
+        # and switches control modes on violation, so the limited P_s/Q_s
+        # propagate into the converter equations and the next AC iteration
+        # (matching MatACDC's convlim placement).
+        if n_vsc > 0 and enforce_limits:
+            _check_converter_limits(net)
 
         # --- Step 2: Converter calculations ---
         if n_vsc > 0:
@@ -131,9 +153,14 @@ def run_pf(
             max_dp = 0.0
 
         if verbose:
-            print(f"Outer iter {outer_iter}: max|dP_s| = {max_dp:.2e}")
+            print(
+                f"Outer iter {outer_iter}: max|dP_s| = {max_dp:.2e}, "
+                f"ac_conv={ac_conv}, dc_conv={dc_conv}"
+            )
 
-        if max_dp < tol:
+        # Converged only if the outer loop settled AND both subproblems
+        # actually converged this iteration.
+        if max_dp < tol and ac_conv and dc_conv:
             converged = True
             break
 
@@ -164,8 +191,13 @@ def _get_vsc_v_control(net: Network) -> dict:
                 gen_pv_buses.add(int(gen["bus"]))
 
     conv_data = net._conv_data
+    vcontrol_disabled = getattr(net, "_vsc_vcontrol_disabled", set())
     for i, vsc_idx in enumerate(conv_data["vsc_indices"]):
         control = str(conv_data["vsc_control"][i])
+        # A converter whose AC-voltage control was dropped on a limit violation
+        # now behaves as PQ, holding its limited reactive power.
+        if vsc_idx in vcontrol_disabled:
+            continue
         if "vac" in control:
             ac_bus = int(conv_data["vsc_ac_bus"][i])
             v_set = float(conv_data["vsc_v_ac_set"][i])
@@ -194,10 +226,16 @@ def _extract_vsc_q_from_ac(net: Network, vsc_v_control: dict):
     if conv_data["n_vsc"] == 0:
         return
 
+    vcontrol_disabled = getattr(net, "_vsc_vcontrol_disabled", set())
+
     # For each Vac-controlling VSC, find the generator Q in the pypower results
     for i, vsc_idx in enumerate(conv_data["vsc_indices"]):
         control = str(conv_data["vsc_control"][i])
         if "vac" not in control:
+            continue
+        # Skip converters whose voltage control was dropped on a limit
+        # violation: their Q is fixed at the clamped value, not re-extracted.
+        if vsc_idx in vcontrol_disabled:
             continue
 
         ac_bus = int(conv_data["vsc_ac_bus"][i])
@@ -524,40 +562,360 @@ def _calculate_converter_losses(net: Network) -> np.ndarray:
     return losses
 
 
+def _circle_circle_intersect(c1: complex, r1: float, c2: complex, r2: float):
+    """
+    Intersection points of two circles in the complex (P, Q) plane.
+
+    Returns a list of 0, 1 or 2 complex points. Infinite radii (a
+    degenerate limit circle) yield no intersection.
+    """
+    if not (np.isfinite(r1) and np.isfinite(r2)):
+        return []
+    d = abs(c2 - c1)
+    if d < 1e-15:
+        return []
+    if d > r1 + r2 + 1e-12 or d < abs(r1 - r2) - 1e-12:
+        return []  # separate or one contained in the other
+    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2.0 * d)
+    h2 = r1 ** 2 - a ** 2
+    h = np.sqrt(h2) if h2 > 0 else 0.0
+    ux = (c2 - c1).real / d
+    uy = (c2 - c1).imag / d
+    mid = complex(c1.real + a * ux, c1.imag + a * uy)
+    if h < 1e-12:
+        return [mid]
+    return [
+        complex(mid.real - h * uy, mid.imag + h * ux),
+        complex(mid.real + h * uy, mid.imag - h * ux),
+    ]
+
+
+def _voltage_limit_q(ps, vsm, vc, g2, b2, g12, b12):
+    """
+    Reactive power on a converter-voltage limit circle at active power ``ps``.
+
+    Ports the sin(delta) formulation from MatACDC convlim.m (upper arc).
+    Returns +inf when the formulation is degenerate (lossless reactor,
+    G2 ~ 0), so the voltage limit is treated as non-binding.
+    """
+    if abs(g2) < 1e-9:
+        return np.inf
+    ratio = (ps + vsm ** 2 * g12) / (vsm * vc * g2)
+    a = 1.0 + (b2 / g2) ** 2
+    b = -2.0 * (b2 / g2) * ratio
+    c = ratio ** 2 - 1.0
+    disc = b ** 2 - 4.0 * a * c
+    if disc < 0.0:
+        disc = 0.0
+    sin_dd = (-b + np.sqrt(disc)) / (2.0 * a)
+    sin_dd = float(np.clip(sin_dd, -1.0, 1.0))
+    cos_dd = np.cos(np.arcsin(sin_dd))
+    return vsm ** 2 * b12 + vsm * vc * (g2 * sin_dd - b2 * cos_dd)
+
+
+def _convlim(p_s_pu, q_s_pu, v_s, z_tf, b_f, z_c, i_max, vc_max, vc_min,
+             eps_lim: float = 1e-4):
+    """
+    MatACDC PQ-capability-diagram limiter (port of convlim.m).
+
+    Clamp a grid-side converter setpoint onto its feasible region, defined by
+    the maximum current-limit circle (``|I_c| <= i_max``) and the min/max
+    converter-voltage circles (``vc_min <= |V_c| <= vc_max``).
+
+    Parameters
+    ----------
+    p_s_pu, q_s_pu : float
+        Grid-side active/reactive power in per-unit, acdcpf **load**
+        convention (``P_s > 0`` = rectifier).
+    v_s : complex
+        Grid-side (PCC) voltage phasor in per-unit.
+    z_tf, z_c : complex
+        Transformer and phase-reactor impedances (per-unit).
+    b_f : float
+        Filter susceptance (per-unit).
+    i_max, vc_max, vc_min : float
+        Converter current and voltage limits (per-unit).
+    eps_lim : float, optional
+        Deadband: a correction smaller than this (per-unit) is treated as no
+        violation (default 1e-4).
+
+    Returns
+    -------
+    tuple
+        ``(viol, p_new_pu, q_new_pu)`` in load convention, where ``viol`` is
+        0 (feasible), 1 (reactive-power limit hit, P preserved) or 2
+        (active-power limit hit, P and Q adjusted).
+
+    Notes
+    -----
+    Internally the setpoint is converted to MatACDC's injection convention
+    (``S_inj = -(P_s + jQ_s)``); the two converter models coincide exactly
+    under this mapping, so the ported geometry applies unchanged. The caller
+    must exclude Vdc-slack converters. Reference: MatACDC convlim.m;
+    J. Beerten et al., IEEE Trans. Power Syst., 2012.
+    """
+    # --- convention bridge: acdcpf load convention -> MatACDC injection ---
+    ps = -float(p_s_pu)
+    qs = -float(q_s_pu)
+    ss_old = complex(ps, qs)
+
+    vsm = abs(v_s)
+    if vsm < 1e-12:
+        return 0, p_s_pu, q_s_pu
+
+    ztf = complex(z_tf)
+    zc = complex(z_c)
+    bf = float(b_f)
+
+    has_tf = abs(ztf) > 1e-12
+    has_bf = abs(bf) > 1e-12
+    zf = 1.0 / (1j * bf) if has_bf else np.inf
+    ytf = (1.0 / ztf) if has_tf else np.inf
+    yf = 1j * bf
+
+    # pi-equivalent of the converter station (transformer / filter / reactor)
+    if has_tf and has_bf:
+        num = ztf * zc + zc * zf + zf * ztf
+        z1 = num / zc
+        z2 = num / zf
+    elif not has_tf and has_bf:
+        z1 = zf
+        z2 = zc
+    elif has_tf and not has_bf:
+        z1 = np.inf
+        z2 = ztf + zc
+    else:
+        z1 = np.inf
+        z2 = zc
+
+    y1 = 0.0 if (isinstance(z1, float) and z1 == np.inf) else 1.0 / z1
+    y2 = 1.0 / z2
+    g2 = y2.real
+    b2 = y2.imag
+    y12 = y1 + y2
+    g12 = complex(y12).real
+    b12 = complex(y12).imag
+
+    # --- maximum current-limit circle (L1) ---
+    if has_bf:
+        mpl1 = complex(-vsm ** 2 * (1.0 / (np.conj(zf) + (np.conj(ztf) if has_tf else 0.0))))
+    else:
+        mpl1 = 0.0 + 0.0j
+    if has_tf:
+        r_l1 = vsm * i_max * abs(np.conj(ytf) / (np.conj(yf) + np.conj(ytf)))
+    else:
+        r_l1 = vsm * i_max
+    qc = mpl1.imag
+    pmax_l1 = mpl1.real + r_l1
+    pmin_l1 = mpl1.real - r_l1
+
+    # --- min/max converter-voltage circles (L2) ---
+    mpl2 = complex(-vsm ** 2 * np.conj(y1 + y2))
+    r_l2_min = vsm * vc_min * abs(y2)
+    r_l2_max = vsm * vc_max * abs(y2)
+
+    # --- feasible active-power range [pmin, pmax] with matching Q ---
+    pmin, qp_min = pmin_l1, qc
+    pmax, qp_max = pmax_l1, qc
+
+    pts = _circle_circle_intersect(mpl1, r_l1, mpl2, r_l2_min)
+    if len(pts) == 2:
+        lo, hi = sorted(pts, key=lambda z: z.real)
+        if lo.imag > qc:
+            pmin, qp_min = lo.real, lo.imag
+        if hi.imag > qc:
+            pmax, qp_max = hi.real, hi.imag
+    pts = _circle_circle_intersect(mpl1, r_l1, mpl2, r_l2_max)
+    if len(pts) == 2:
+        lo, hi = sorted(pts, key=lambda z: z.real)
+        if lo.imag < qc:
+            pmin, qp_min = lo.real, lo.imag
+        if hi.imag < qc:
+            pmax, qp_max = hi.real, hi.imag
+
+    # --- limit check ---
+    if pmin < ps < pmax:
+        disc1 = r_l1 ** 2 - (ps - mpl1.real) ** 2
+        if disc1 < 0.0:
+            disc1 = 0.0
+        qs1 = qc + np.sqrt(disc1) if qc < qs else qc - np.sqrt(disc1)
+
+        qs2_min = _voltage_limit_q(ps, vsm, vc_min, g2, b2, g12, b12)
+        qs2_max = _voltage_limit_q(ps, vsm, vc_max, g2, b2, g12, b12)
+
+        if qs > qc:
+            upper = min(qs1, qs2_max)
+            lower = qs2_min
+            if qs > upper:
+                viol, qs = 1, upper
+            elif qs < lower:
+                viol, qs = 1, lower
+            else:
+                viol = 0
+        else:
+            lower = max(qs1, qs2_min)
+            upper = qs2_max
+            if qs < lower:
+                viol, qs = 1, lower
+            elif qs > upper:
+                viol, qs = 1, upper
+            else:
+                viol = 0
+    elif ps <= pmin:
+        viol, ps, qs = 2, pmin, qp_min
+    else:
+        viol, ps, qs = 2, pmax, qp_max
+
+    ss_new = complex(ps, qs)
+    if abs(ss_old - ss_new) < eps_lim:
+        viol = 0
+
+    # back to load convention
+    return viol, -ss_new.real, -ss_new.imag
+
+
+def _apparent_power_clamp(p_s, q_s, s_rated):
+    """
+    Fallback limiter: clamp (P, Q) onto the apparent-power circle S <= s_rated.
+
+    Used when full capability-diagram limits (Icmax/Vcmax/Vcmin) are not
+    available for a converter. Reduces Q first, then P (P-priority).
+    Returns (viol, p_new, q_new).
+    """
+    if not (s_rated > 0):
+        return 0, p_s, q_s
+    s_actual = np.sqrt(p_s ** 2 + q_s ** 2)
+    if s_actual <= s_rated:
+        return 0, p_s, q_s
+    viol = 1
+    q_max = np.sqrt(max(s_rated ** 2 - p_s ** 2, 0.0))
+    if abs(q_s) > q_max:
+        q_s = np.sign(q_s) * q_max
+    s_actual = np.sqrt(p_s ** 2 + q_s ** 2)
+    if s_actual > s_rated:
+        scale = s_rated / s_actual
+        p_s *= scale
+        q_s *= scale
+        viol = 2
+    return viol, p_s, q_s
+
+
+def _converter_limit_candidate(net, conv_data, i):
+    """
+    Evaluate the limiter for one non-slack converter without applying it.
+
+    Returns ``(viol, p_new, q_new)`` in MW (load convention). Uses the full
+    MatACDC PQ-capability diagram (:func:`_convlim`) when the converter
+    defines the complete limit set (Icmax, Vcmax, Vcmin), otherwise the
+    apparent-power fallback (:func:`_apparent_power_clamp`).
+    """
+    s_base = net.s_base
+    vsc_idx = conv_data["vsc_indices"][i]
+    p_s = net._p_s[vsc_idx]
+    q_s = net._q_s[vsc_idx]
+
+    i_max = conv_data["vsc_i_max"][i]
+    vc_max = conv_data["vsc_vc_max"][i]
+    vc_min = conv_data["vsc_vc_min"][i]
+
+    if i_max > 0 and vc_max > vc_min > 0:
+        ac_bus = int(conv_data["vsc_ac_bus"][i])
+        if ac_bus < len(net._v_mag):
+            v_s = net._v_mag[ac_bus] * np.exp(1j * net._v_ang[ac_bus])
+        else:
+            v_s = complex(1.0, 0.0)
+        z_tf = complex(conv_data["vsc_r_tf"][i], conv_data["vsc_x_tf"][i])
+        z_c = complex(conv_data["vsc_r_c"][i], conv_data["vsc_x_c"][i])
+        b_f = conv_data["vsc_b_filter"][i]
+        viol, p_new_pu, q_new_pu = _convlim(
+            p_s / s_base, q_s / s_base, v_s, z_tf, b_f, z_c,
+            i_max, vc_max, vc_min,
+        )
+        return viol, p_new_pu * s_base, q_new_pu * s_base
+
+    return _apparent_power_clamp(p_s, q_s, conv_data["vsc_s_mva"][i])
+
+
 def _check_converter_limits(net: Network) -> bool:
     """
-    Check and enforce converter limits.
+    Check and enforce converter limits, and switch control modes on violation.
 
-    Checks current limits (PQ capability circle) and voltage limits.
-    Returns True if any limit was hit and setpoints were adjusted.
+    Each non-slack VSC setpoint (P_s, Q_s) is clamped onto its feasible region.
+    When the converter defines the full MatACDC limit set (Icmax, Vcmax, Vcmin)
+    the complete PQ-capability diagram (:func:`_convlim`) is used; otherwise it
+    falls back to the apparent-power circle (:func:`_apparent_power_clamp`).
+
+    **One correction per DC grid per call**, matching MatACDC's ``runacdcpf``:
+    all non-slack converters are evaluated, then within each DC grid a single
+    converter is corrected -- the largest active-power violation (viol == 2,
+    ranked by |dP|) if any exists, otherwise the largest reactive-power
+    violation (viol == 1, ranked by |dQ|). Correcting one at a time (rather
+    than all simultaneously) avoids spuriously latching a control-mode switch
+    on a converter whose violation would clear once a coupled converter in the
+    same grid is corrected. Remaining violations are handled on later outer
+    iterations.
+
+    On the corrected converter the control mode is switched, matching MatACDC:
+    a voltage-controlling (Vac) converter that hits a reactive-power limit
+    drops AC-voltage control (held at the limited Q via
+    ``net._vsc_vcontrol_disabled``), and a droop converter switches to
+    constant active power (``net._vsc_droop_disabled``). These latches persist
+    for the remainder of the solve.
+
+    Vdc-slack converters are exempt: their power is fixed by the DC grid power
+    balance, not a setpoint, so it cannot be curtailed (MatACDC removes slack
+    converters from the convlim check).
+
+    Returns True if any converter was corrected.
     """
     conv_data = net._conv_data
     n_vsc = conv_data["n_vsc"]
-    limit_hit = False
 
+    vcontrol_disabled = net._vsc_vcontrol_disabled
+    droop_disabled = net._vsc_droop_disabled
+
+    # 1) Evaluate every non-slack converter; collect violations per DC grid.
+    by_grid = {}
     for i in range(n_vsc):
+        control = str(conv_data["vsc_control"][i])
+        if "vdc" in control:  # slack converters are exempt
+            continue
+
+        viol, p_new, q_new = _converter_limit_candidate(net, conv_data, i)
+        if viol == 0:
+            continue
+
         vsc_idx = conv_data["vsc_indices"][i]
-        s_rated = conv_data["vsc_s_mva"][i]
+        dc_bus = int(conv_data["vsc_dc_bus"][i])
+        grid = int(net.dc_bus.loc[dc_bus, "dc_grid"]) if dc_bus in net.dc_bus.index else 0
+        d_p = abs(p_new - net._p_s[vsc_idx])
+        d_q = abs(q_new - net._q_s[vsc_idx])
+        by_grid.setdefault(grid, []).append(
+            {"vsc_idx": vsc_idx, "control": control, "viol": viol,
+             "p_new": p_new, "q_new": q_new, "d_p": d_p, "d_q": d_q}
+        )
 
-        p_s = net._p_s[vsc_idx]
-        q_s = net._q_s[vsc_idx]
-        s_actual = np.sqrt(p_s ** 2 + q_s ** 2)
+    if not by_grid:
+        return False
 
-        # Check current limit (Eq. 13.28-13.30)
-        if s_rated > 0 and s_actual > s_rated:
-            # Reduce Q first (priority: P > Q)
-            q_max = np.sqrt(max(s_rated ** 2 - p_s ** 2, 0))
-            if abs(q_s) > q_max:
-                net._q_s[vsc_idx] = np.sign(q_s) * q_max
-                limit_hit = True
+    # 2) Correct exactly one converter per DC grid (P-violations take priority).
+    limit_hit = False
+    for cands in by_grid.values():
+        p_viol = [c for c in cands if c["viol"] == 2]
+        if p_viol:
+            sel = max(p_viol, key=lambda c: c["d_p"])
+        else:
+            sel = max(cands, key=lambda c: c["d_q"])
 
-            # If still over, reduce P
-            s_actual = np.sqrt(net._p_s[vsc_idx] ** 2 + net._q_s[vsc_idx] ** 2)
-            if s_actual > s_rated:
-                scale = s_rated / s_actual
-                net._p_s[vsc_idx] *= scale
-                net._q_s[vsc_idx] *= scale
-                limit_hit = True
+        vsc_idx = sel["vsc_idx"]
+        net._p_s[vsc_idx] = sel["p_new"]
+        net._q_s[vsc_idx] = sel["q_new"]
+        limit_hit = True
+
+        if "vac" in sel["control"]:
+            vcontrol_disabled.add(vsc_idx)
+        if "droop" in sel["control"]:
+            droop_disabled.add(vsc_idx)
 
     return limit_hit
 
@@ -572,12 +930,18 @@ def _update_slack_droop_powers(net: Network) -> None:
     """
     conv_data = net._conv_data
     n_vsc = conv_data["n_vsc"]
+    droop_disabled = getattr(net, "_vsc_droop_disabled", set())
 
     for i in range(n_vsc):
         vsc_idx = conv_data["vsc_indices"][i]
         control = str(conv_data["vsc_control"][i])
 
         if "vdc" not in control and "droop" not in control:
+            continue
+
+        # A droop converter whose control was disabled on a limit violation
+        # becomes constant active power: keep its clamped P_s, no droop update.
+        if "droop" in control and vsc_idx in droop_disabled:
             continue
 
         dc_bus = int(conv_data["vsc_dc_bus"][i])

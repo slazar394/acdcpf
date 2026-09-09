@@ -678,7 +678,8 @@ converged = pf.run_pf(
     verbose=False,         # Print iteration details
     tol=1e-8,              # Convergence tolerance (MW)
     max_iter_outer=50,     # Maximum outer iterations
-    max_iter_inner=30      # Maximum inner (NR) iterations
+    max_iter_inner=30,     # Maximum inner (NR) iterations
+    enforce_limits=True    # Converter capability-limit enforcement
 )
 ```
 
@@ -691,19 +692,42 @@ converged = pf.run_pf(
 | `tol` | float | 1e-8 | Power mismatch tolerance (MW) |
 | `max_iter_outer` | int | 50 | Max sequential iterations |
 | `max_iter_inner` | int | 30 | Max Newton-Raphson iterations |
+| `enforce_limits` | bool | True | Enforce converter limits (see below) |
 
 **Return Value:**
 - `True` if converged within tolerance
 - `False` if maximum iterations reached
 
+### Converter limit enforcement
+
+With `enforce_limits=True` (the default), each non-slack VSC setpoint is
+clamped every outer iteration onto its **PQ-capability diagram** — the
+MatACDC `convlim` limiter (chapter 4.1.4), bounded by the maximum
+current-limit circle (`Icmax`) and the min/max converter-voltage circles
+(`Vcmax`, `Vcmin`). Converters that carry the full limit set (imported from
+MatACDC `convdc`, or set via `i_max_pu` / `vc_max_pu` / `vc_min_pu` on
+`create_vsc`) use the full diagram; converters that define only `s_mva` fall
+back to the apparent-power circle `S ≤ s_mva`.
+
+On a violation the converter's control mode is switched, matching MatACDC:
+a voltage-controlling converter that hits its reactive-power limit drops
+AC-voltage control (its `Q` is held at the limited value), and a droop
+converter switches to constant active power. Vdc-slack converters are exempt,
+since their power is set by the DC grid balance. Set `enforce_limits=False`
+to solve with limits ignored (equivalent to MatACDC's `limac = 0`).
+
 ### Convergence
 
-The power flow is considered converged when:
+The power flow is considered converged when the outer loop has settled
+**and** both the AC and DC subproblems converged on that iteration:
 ```
-max|P_s^(k) - P_s^(k-1)| < tolerance
+max|P_s^(k) - P_s^(k-1)| < tolerance   AND   ac_converged AND dc_converged
 ```
 
-Where `P_s` is the AC-side power of all VSC converters.
+Where `P_s` is the AC-side power of all VSC converters. The subproblem
+checks ensure that, for example, an AC-only network whose Newton-Raphson
+solve fails is reported as **not** converged rather than trivially
+converging on the first iteration.
 
 Typical convergence:
 - 3-10 outer iterations for well-posed problems

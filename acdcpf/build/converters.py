@@ -78,13 +78,28 @@ def build_converter_data(net: Network) -> Dict[str, Any]:
         data["vsc_b_filter"] = vsc_is["b_filter_pu"].astype(float).to_numpy()
         data["vsc_s_mva"] = vsc_is["s_mva"].astype(float).to_numpy()
         data["vsc_loss_base_kv"] = vsc_is["loss_base_kv"].to_numpy(dtype=float, na_value=0.0)
+        # Converter limits (MatACDC ICMAX/VCMAX/VCMIN). Missing/NaN -> 0.0,
+        # which downstream code treats as "no limit specified".
+        if "i_max_pu" in vsc_is.columns:
+            data["vsc_i_max"] = vsc_is["i_max_pu"].to_numpy(dtype=float, na_value=0.0)
+        else:
+            data["vsc_i_max"] = np.zeros(n_vsc)
+        if "vc_max_pu" in vsc_is.columns:
+            data["vsc_vc_max"] = vsc_is["vc_max_pu"].to_numpy(dtype=float, na_value=0.0)
+        else:
+            data["vsc_vc_max"] = np.zeros(n_vsc)
+        if "vc_min_pu" in vsc_is.columns:
+            data["vsc_vc_min"] = vsc_is["vc_min_pu"].to_numpy(dtype=float, na_value=0.0)
+        else:
+            data["vsc_vc_min"] = np.zeros(n_vsc)
     else:
         for key in ["vsc_ac_bus", "vsc_dc_bus", "vsc_p_set", "vsc_q_set",
                      "vsc_v_ac_set", "vsc_v_dc_set", "vsc_droop_k",
                      "vsc_p_dc_set", "vsc_v_dc_droop_set",
                      "vsc_loss_a", "vsc_loss_b", "vsc_loss_c", "vsc_loss_c_inv",
                      "vsc_r_tf", "vsc_x_tf", "vsc_r_c", "vsc_x_c",
-                     "vsc_b_filter", "vsc_s_mva", "vsc_loss_base_kv"]:
+                     "vsc_b_filter", "vsc_s_mva", "vsc_loss_base_kv",
+                     "vsc_i_max", "vsc_vc_max", "vsc_vc_min"]:
             data[key] = np.array([])
         data["vsc_control"] = np.array([], dtype=str)
 

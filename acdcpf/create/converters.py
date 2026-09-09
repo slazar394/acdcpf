@@ -30,6 +30,9 @@ def create_vsc(
     x_c_pu: float = 0.0,
     b_filter_pu: float = 0.0,
     loss_base_kv: Optional[float] = None,
+    i_max_pu: Optional[float] = None,
+    vc_max_pu: Optional[float] = None,
+    vc_min_pu: Optional[float] = None,
     name: str = "",
     in_service: bool = True,
 ) -> int:
@@ -93,6 +96,13 @@ def create_vsc(
     loss_base_kv : float, optional
         AC base voltage for loss calculation in kV (default: None, uses bus voltage).
         Matches MatACDC's basekVac field in convdc.
+    i_max_pu : float, optional
+        Maximum converter current in pu (MatACDC ICMAX). Used together with
+        ``s_mva`` for converter limit enforcement (default: None).
+    vc_max_pu : float, optional
+        Maximum converter voltage magnitude in pu (MatACDC VCMAX) (default: None).
+    vc_min_pu : float, optional
+        Minimum converter voltage magnitude in pu (MatACDC VCMIN) (default: None).
     name : str, optional
         Converter name
     in_service : bool, optional
@@ -126,6 +136,9 @@ def create_vsc(
         "x_c_pu": x_c_pu,
         "b_filter_pu": b_filter_pu,
         "loss_base_kv": loss_base_kv,
+        "i_max_pu": i_max_pu,
+        "vc_max_pu": vc_max_pu,
+        "vc_min_pu": vc_min_pu,
         "in_service": in_service,
     })
     return idx
