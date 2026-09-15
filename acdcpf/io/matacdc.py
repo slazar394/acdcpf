@@ -2,6 +2,8 @@
 Import from MatACDC / PyACDCPF format (hybrid AC/DC networks).
 """
 
+import warnings
+
 import numpy as np
 from ..network import Network, create_empty_network
 from ..create.dc import create_dc_bus, create_dc_line, create_dc_load, create_dc_gen
@@ -244,7 +246,26 @@ def from_matacdc(ppc: dict, pdc: dict, name: str = "",
         v_ac_pu = v_tar if type_ac == 2 else None
         v_dc_pu = dc_bus_info[busdc_i][3] if type_dc == 2 else None
 
-        s_mva = (np.sqrt(3) * basekVac * imax) if imax > 0 else baseMVA
+        # ICMAX (convdc Imax) is the maximum converter current in per-unit on
+        # the system base -- the same convention _convlim uses internally and
+        # the same as the adjacent per-unit VCMAX/VCMIN fields. The apparent
+        # power rating is therefore S_max = Imax_pu * baseMVA (since, at rated
+        # voltage, sqrt(3)*V_LL*I_max_kA = Imax_pu * baseMVA). Previously this
+        # multiplied by sqrt(3)*basekVac, treating Imax as kA, which disagreed
+        # by a factor of sqrt(3)*basekVac/baseMVA with the per-unit value fed
+        # to the capability-diagram limiter.
+        if imax > 0:
+            if not (0.1 <= imax <= 5.0):
+                warnings.warn(
+                    f"Converter on DC bus {busdc_i}: ICMAX = {imax:g} pu is "
+                    f"outside the plausible per-unit range [0.1, 5.0]. MatACDC "
+                    f"ICMAX is expected in per-unit on the system base; check "
+                    f"the units of the convdc Imax column.",
+                    stacklevel=2,
+                )
+            s_mva = imax * baseMVA
+        else:
+            s_mva = baseMVA
 
         create_vsc(
             net,

@@ -70,6 +70,26 @@ def _find_ac_islands(net: Network):
     return islands
 
 
+def _vsc_reactive_limit_at_bus(net: Network, ac_bus: int) -> float:
+    """
+    Reactive-power bound (MVAr) for the Vac-control dummy generator at a bus.
+
+    Uses the summed apparent-power rating (``s_mva``) of the in-service VSCs
+    controlling voltage at ``ac_bus`` -- a converter cannot exchange reactive
+    power beyond its MVA rating. Falls back to a large finite value when no
+    rated converter is found, avoiding the non-physical ``inf`` that breaks
+    pypower's ``pfsoln`` arithmetic.
+    """
+    q_lim = 0.0
+    if not net.vsc.empty:
+        at_bus = net.vsc[(net.vsc["ac_bus"] == ac_bus) & (net.vsc["in_service"] == True)]
+        for _, row in at_bus.iterrows():
+            s_mva = row.get("s_mva")
+            if s_mva is not None and not (isinstance(s_mva, float) and np.isnan(s_mva)):
+                q_lim += float(s_mva)
+    return q_lim if q_lim > 0 else 9999.0
+
+
 def _net_to_ppc(net: Network, island_buses: List[int],
                 p_vsc: np.ndarray, q_vsc: np.ndarray,
                 vsc_v_control: Dict[int, float]) -> dict:
@@ -185,8 +205,16 @@ def _net_to_ppc(net: Network, island_buses: List[int],
         g[GEN_BUS] = i
         g[PG] = 0.0  # P already handled via load injection
         g[QG] = 0.0
-        g[QMAX] = 9999.0
-        g[QMIN] = -9999.0
+        # Reactive bound = the converter's apparent-power rating (a converter
+        # cannot supply reactive power beyond its MVA rating). This replaces a
+        # magic +-9999. With ENFORCE_Q_LIMS off (the default) pypower keeps the
+        # bus PV during the solve and the converter's true reactive capability
+        # is enforced by the outer-loop PQ-capability check
+        # (_check_converter_limits); the finite bound makes the value physical
+        # and correct should Q-limit enforcement be enabled.
+        q_lim = _vsc_reactive_limit_at_bus(net, ac_bus_ext)
+        g[QMAX] = q_lim
+        g[QMIN] = -q_lim
         g[VG] = v_set
         g[MBASE] = net.s_base
         g[GEN_STATUS] = 1
@@ -364,7 +392,9 @@ def run_ac_pf(
     Returns
     -------
     tuple
-        (v_mag, v_ang, converged, iterations)
+        ``(v_mag, v_ang, converged, n_solves)`` where ``n_solves`` is the
+        number of AC island power-flow solves performed (pypower does not
+        expose the inner Newton iteration count).
     """
     n_bus = len(net.ac_bus)
     if n_bus == 0:
@@ -406,6 +436,11 @@ def run_ac_pf(
 
         # Run pypower power flow
         result, success = runpf(ppc, ppopt)
+
+        # pypower's runpf does not expose the inner Newton iteration count, so
+        # total_iter records the number of AC sub-problem (island) solves
+        # performed this call rather than always returning 0.
+        total_iter += 1
 
         if not success:
             all_converged = False

@@ -13,6 +13,8 @@ from ..network import Network
 from .ac import run_ac_pf
 from .dc import run_dc_pf
 
+import warnings
+
 import numpy as np
 
 
@@ -168,7 +170,66 @@ def run_pf(
     net.converged = converged
     _store_results(net)
 
+    # Surface limit-related conditions the solver could not act on silently:
+    # converters whose control mode was switched on a violation, and any
+    # converter (Vdc-slack included) left loaded above its rating.
+    if n_vsc > 0 and enforce_limits:
+        _emit_limit_warnings(net)
+
     return converged
+
+
+def _emit_limit_warnings(net: Network) -> None:
+    """
+    Warn about clamped/switched converters and residual overloads.
+
+    Emitted once per affected converter after the solve:
+
+    - a converter whose AC-voltage control or droop control was switched off
+      when it hit a capability limit (its setpoint was clamped); and
+    - any converter still loaded above its rating -- notably Vdc-slack
+      converters, which are exempt from curtailment because their power is set
+      by the DC power balance, so the limiter cannot reduce their loading.
+    """
+    vcontrol_disabled = getattr(net, "_vsc_vcontrol_disabled", set())
+    droop_disabled = getattr(net, "_vsc_droop_disabled", set())
+
+    if net.vsc.empty or not hasattr(net, "res_vsc") or net.res_vsc.empty:
+        switched = vcontrol_disabled | droop_disabled
+        for vsc_idx in sorted(switched):
+            name = str(net.vsc.at[vsc_idx, "name"]) if vsc_idx in net.vsc.index else str(vsc_idx)
+            warnings.warn(
+                f"VSC '{name}' hit a converter limit: its control mode was "
+                f"switched and its setpoint clamped.",
+                stacklevel=2,
+            )
+        return
+
+    conv_data = getattr(net, "_conv_data", None)
+    slack_idx = set()
+    if conv_data is not None:
+        for i, vsc_idx in enumerate(conv_data["vsc_indices"]):
+            if "vdc" in str(conv_data["vsc_control"][i]):
+                slack_idx.add(int(vsc_idx))
+
+    for vsc_idx in sorted(vcontrol_disabled | droop_disabled):
+        name = str(net.vsc.at[vsc_idx, "name"]) if vsc_idx in net.vsc.index else str(vsc_idx)
+        warnings.warn(
+            f"VSC '{name}' hit a converter limit: its control mode was "
+            f"switched and its setpoint clamped onto the capability region.",
+            stacklevel=2,
+        )
+
+    for vsc_idx in net.res_vsc.index:
+        loading = float(net.res_vsc.at[vsc_idx, "loading_percent"])
+        if loading > 100.0 + 1e-3:
+            name = str(net.res_vsc.at[vsc_idx, "name"])
+            exempt = " (Vdc-slack, exempt from curtailment)" if int(vsc_idx) in slack_idx else ""
+            warnings.warn(
+                f"VSC '{name}' is loaded at {loading:.2f}% of its rating"
+                f"{exempt}.",
+                stacklevel=2,
+            )
 
 
 def _get_vsc_v_control(net: Network) -> dict:
@@ -549,19 +610,6 @@ def _calculate_converter_equations(net: Network) -> None:
         }
 
 
-def _calculate_converter_losses(net: Network) -> np.ndarray:
-    """Calculate converter losses (called as part of converter equations)."""
-    conv_data = net._conv_data
-    n_vsc = conv_data["n_vsc"]
-    losses = np.zeros(len(net.vsc)) if not net.vsc.empty else np.array([])
-
-    if hasattr(net, '_vsc_internal'):
-        for vsc_idx, internal in net._vsc_internal.items():
-            losses[vsc_idx] = internal['p_loss']
-
-    return losses
-
-
 def _circle_circle_intersect(c1: complex, r1: float, c2: complex, r2: float):
     """
     Intersection points of two circles in the complex (P, Q) plane.
@@ -853,7 +901,15 @@ def _check_converter_limits(net: Network) -> bool:
     than all simultaneously) avoids spuriously latching a control-mode switch
     on a converter whose violation would clear once a coupled converter in the
     same grid is corrected. Remaining violations are handled on later outer
-    iterations.
+    iterations. For a system with a single DC grid this reduces to exactly one
+    correction per outer iteration; grids are corrected independently because
+    they are only coupled through DC-DC converters, not a shared power balance.
+
+    This function is invoked once per outer iteration, after the AC power flow
+    (so ``V_s`` is available) and before the converter equations and DC power
+    flow, so the clamped setpoints propagate into the converter model and the
+    next AC solve -- matching the placement of ``convlim`` in MatACDC's
+    ``runacdcpf`` sequential loop.
 
     On the corrected converter the control mode is switched, matching MatACDC:
     a voltage-controlling (Vac) converter that hits a reactive-power limit

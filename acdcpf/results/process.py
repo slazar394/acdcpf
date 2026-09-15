@@ -353,6 +353,14 @@ def process_converter_results(net: Network) -> None:
             s_ac = np.sqrt(p_ac ** 2 + q_ac ** 2)
             i_ac_ka = s_ac / (np.sqrt(3) * vr_kv * v_ac) if vr_kv * v_ac > 0 else 0.0
 
+            # Loading against the converter rating (apparent power vs s_mva).
+            # Reported for every converter -- including Vdc-slack converters,
+            # whose power is set by the DC balance and cannot be curtailed by
+            # the limiter -- so that overloads remain visible to the caller.
+            s_rated = row.get("s_mva", 0.0)
+            s_rated = 0.0 if s_rated is None or (isinstance(s_rated, float) and np.isnan(s_rated)) else float(s_rated)
+            loading = s_ac / s_rated * 100.0 if s_rated > 0 else 0.0
+
             vsc_results.append({
                 "name": row.get("name", ""),
                 "p_ac_mw": p_ac,
@@ -363,6 +371,8 @@ def process_converter_results(net: Network) -> None:
                 "v_dc_pu": v_dc_pu,
                 "v_converter_pu": v_conv,
                 "i_ac_ka": i_ac_ka,
+                "s_mva": s_rated,
+                "loading_percent": loading,
             })
 
     if vsc_results:
@@ -373,7 +383,8 @@ def process_converter_results(net: Network) -> None:
     else:
         net.res_vsc = pd.DataFrame(
             columns=["name", "p_ac_mw", "q_ac_mvar", "p_dc_mw", "p_loss_mw",
-                      "v_ac_pu", "v_dc_pu", "v_converter_pu", "i_ac_ka"]
+                      "v_ac_pu", "v_dc_pu", "v_converter_pu", "i_ac_ka",
+                      "s_mva", "loading_percent"]
         )
 
     # --- DC-DC Results (transformer model) ---

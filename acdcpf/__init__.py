@@ -17,7 +17,7 @@ import numpy as np
 if not hasattr(np, 'in1d'):
     np.in1d = np.isin
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "ACDCPF Contributors"
 
 from .network import Network, create_empty_network

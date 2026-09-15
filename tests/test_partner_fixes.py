@@ -173,8 +173,11 @@ def test_matacdc_import_reads_vcmax_vcmin_icmax():
     assert net.vsc.at[vsc0, "vc_min_pu"] == pytest.approx(0.85)
     assert net.vsc.at[vsc0, "i_max_pu"] == pytest.approx(1.10)
 
-    # s_mva must still be derived from ICMAX exactly as before.
-    expected_s = np.sqrt(3) * basekVac * 1.10
+    # s_mva is derived from ICMAX read as per-unit current on the system base
+    # (S_max = Imax_pu * baseMVA), consistent with the per-unit value fed to
+    # the capability-diagram limiter (_convlim) and the per-unit VCMAX/VCMIN.
+    baseMVA = float(ppc["baseMVA"])
+    expected_s = 1.10 * baseMVA
     assert net.vsc.at[vsc0, "s_mva"] == pytest.approx(expected_s)
 
     # Second converter's distinct limits.
