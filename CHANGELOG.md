@@ -5,6 +5,30 @@ All notable changes to acdcpf are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Converter `loading_percent` now reflects the enforced quantity.** When the
+  full capability limit set is defined (`i_max_pu`, `vc_max_pu`, `vc_min_pu`),
+  loading is reported as the phase-reactor current `|I_c| / i_max_pu` — the
+  converter-side current the limiter (`_convlim`) actually constrains — rather
+  than the grid-side apparent power `|S_s| / s_mva`. The grid-side measure
+  double-counts the transformer/filter reactive consumption and flagged
+  spurious overloads on converters the limiter considered legal. `|S_s| /
+  s_mva` remains the fallback when only a rating `s_mva` is known.
+- CHANGELOG: converter losses are computed in `_calculate_converter_equations`
+  (and stored on the network), not in `process_converter_results`, which only
+  reads them.
+
+### Added
+
+- `run_pf` now warns when an in-service DC line joins buses carrying different
+  `dc_grid` labels. `dc_grid` is user-supplied and not derived from DC-line
+  connectivity; per-grid slack power sharing and the per-grid converter-limit
+  correction both assume it matches the topology, and were previously silently
+  wrong on a mismatch.
+
 ## [0.2.0] - 2026-09-15
 
 ### Changed
@@ -40,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `run_ac_pf` now reports the number of AC island solves performed instead of
   always returning `0`.
 - Removed the unreachable `_calculate_converter_losses` helper (converter
-  losses are computed in `process_converter_results`).
+  losses are computed in `_calculate_converter_equations` and stored on the
+  network; `process_converter_results` only reads them).
 - Dummy generators added for VSC AC-voltage control now carry the converter's
   physical reactive-power bound (`±s_mva`) instead of a magic `±9999`.
 

@@ -7,6 +7,15 @@ import numpy as np
 from ..network import Network
 
 
+def _limit_value(v) -> float:
+    """Coerce an optional converter-limit entry (None/NaN -> 0.0) to float."""
+    if v is None:
+        return 0.0
+    if isinstance(v, float) and np.isnan(v):
+        return 0.0
+    return float(v)
+
+
 def process_ac_results(net: Network, v_mag: np.ndarray, v_ang: np.ndarray) -> None:
     """
     Process AC power flow results.
@@ -342,24 +351,49 @@ def process_converter_results(net: Network) -> None:
             v_ac = net._v_mag[ac_bus] if hasattr(net, '_v_mag') and ac_bus < len(net._v_mag) else 1.0
             v_dc_pu = net._v_dc[dc_bus] if hasattr(net, '_v_dc') and dc_bus < len(net._v_dc) else 1.0
 
-            # Converter internal voltage
+            # Converter internal voltage and phase-reactor current
             v_conv = 1.0
+            i_c_pu = None
             if hasattr(net, '_vsc_internal') and idx in net._vsc_internal:
                 p_loss = net._vsc_internal[idx]['p_loss']
                 v_conv = abs(net._vsc_internal[idx].get('v_c', 1.0))
+                i_c = net._vsc_internal[idx].get('i_c')
+                if i_c is not None:
+                    i_c_pu = abs(i_c)
 
             # AC current
             vr_kv = float(net.ac_bus.loc[ac_bus, "vr_kv"])
             s_ac = np.sqrt(p_ac ** 2 + q_ac ** 2)
             i_ac_ka = s_ac / (np.sqrt(3) * vr_kv * v_ac) if vr_kv * v_ac > 0 else 0.0
 
-            # Loading against the converter rating (apparent power vs s_mva).
-            # Reported for every converter -- including Vdc-slack converters,
-            # whose power is set by the DC balance and cannot be curtailed by
-            # the limiter -- so that overloads remain visible to the caller.
+            # Converter loading.
+            #
+            # When the full capability limit set is defined (Icmax, Vcmax,
+            # Vcmin), the limiter enforces the phase-reactor current
+            # |I_c| <= i_max_pu -- a converter-side quantity, after the
+            # transformer and filter. Report loading as |I_c| / i_max_pu so the
+            # number matches what is actually enforced. Using the grid-side
+            # apparent power |S_s| / s_mva instead would double-count the
+            # reactive consumption of the transformer/filter branch and flag
+            # spurious overloads on converters the limiter considers legal.
+            #
+            # Otherwise (only a rating s_mva is known) fall back to the
+            # grid-side apparent-power measure. Reported for every converter --
+            # including Vdc-slack converters, whose power is set by the DC
+            # balance and cannot be curtailed -- so overloads stay visible.
+            i_max_pu = _limit_value(row.get("i_max_pu"))
+            vc_max_pu = _limit_value(row.get("vc_max_pu"))
+            vc_min_pu = _limit_value(row.get("vc_min_pu"))
+            full_limit_set = (
+                i_max_pu > 0.0 and vc_max_pu > vc_min_pu > 0.0
+            )
+
             s_rated = row.get("s_mva", 0.0)
             s_rated = 0.0 if s_rated is None or (isinstance(s_rated, float) and np.isnan(s_rated)) else float(s_rated)
-            loading = s_ac / s_rated * 100.0 if s_rated > 0 else 0.0
+            if full_limit_set and i_c_pu is not None:
+                loading = i_c_pu / i_max_pu * 100.0
+            else:
+                loading = s_ac / s_rated * 100.0 if s_rated > 0 else 0.0
 
             vsc_results.append({
                 "name": row.get("name", ""),

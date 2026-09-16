@@ -64,6 +64,10 @@ def run_pf(
     has_dc = len(net.dc_bus) > 0
     has_ac = len(net.ac_bus) > 0
 
+    # Sanity-check the user-supplied dc_grid labels against DC-line topology.
+    if has_dc:
+        _validate_dc_grid_labels(net)
+
     # Initialize working arrays for VSC powers
     # P_s, Q_s are AC-side powers at PCC (MW, MVAr)
     p_s = np.zeros(len(net.vsc)) if not net.vsc.empty else np.array([])
@@ -439,6 +443,44 @@ def _compute_island_power_balance(net: Network) -> dict:
             balance[bus] = island_bal
 
     return balance
+
+
+def _validate_dc_grid_labels(net: Network) -> None:
+    """
+    Warn when a DC line joins two different ``dc_grid`` labels.
+
+    ``dc_grid`` is a user-supplied label on each DC bus, not something derived
+    from DC-line connectivity, and two mechanisms rely on it being consistent
+    with the topology: per-grid slack power sharing
+    (:func:`_init_slack_power_per_grid`) and the one-correction-per-grid rule in
+    :func:`_check_converter_limits`. If an in-service DC line connects buses
+    carrying different labels, the buses it joins are electrically one grid but
+    are treated as two, so both mechanisms are silently wrong. This emits a
+    warning per offending line; it does not modify the labels.
+    """
+    if net.dc_line.empty or net.dc_bus.empty:
+        return
+
+    for idx in net.dc_line.index:
+        line = net.dc_line.loc[idx]
+        if not line["in_service"]:
+            continue
+        f_bus = int(line["from_bus"])
+        t_bus = int(line["to_bus"])
+        if f_bus not in net.dc_bus.index or t_bus not in net.dc_bus.index:
+            continue
+        f_grid = int(net.dc_bus.loc[f_bus, "dc_grid"])
+        t_grid = int(net.dc_bus.loc[t_bus, "dc_grid"])
+        if f_grid != t_grid:
+            name = str(line.get("name", "")) or str(idx)
+            warnings.warn(
+                f"DC line '{name}' connects buses in different dc_grid labels "
+                f"({f_grid} and {t_grid}); the dc_grid labels are inconsistent "
+                f"with the DC-line topology. Per-grid slack power sharing and "
+                f"the per-grid converter-limit correction rely on dc_grid "
+                f"matching connectivity and may be incorrect.",
+                stacklevel=2,
+            )
 
 
 def _init_slack_power_per_grid(net: Network):
