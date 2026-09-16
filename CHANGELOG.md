@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in Vdc-slack reactive limiting.** `run_pf` gained a standalone
+  `enforce_slack_q_limits` flag (default `False`). When on, a Vdc-slack
+  converter that also holds AC voltage (`vdc_vac`) has its reactive power
+  bounded onto the capability region — dropping AC-voltage control and holding
+  the clamped Q — while its slack active power (set by the DC balance) is never
+  curtailed. Off by default preserves the current behaviour, matching MatACDC,
+  which exempts slack converters from its capability check entirely.
 - `run_pf` now warns when an in-service DC line joins buses carrying different
   `dc_grid` labels. `dc_grid` is user-supplied and not derived from DC-line
   connectivity; per-grid slack power sharing and the per-grid converter-limit

@@ -25,6 +25,7 @@ def run_pf(
     tol: float = 1e-8,
     verbose: bool = False,
     enforce_limits: bool = True,
+    enforce_slack_q_limits: bool = False,
 ) -> bool:
     """
     Run sequential AC/DC power flow.
@@ -50,6 +51,15 @@ def run_pf(
         PQ-capability diagram, switching control modes on violation
         (default: True). Set False to solve without limit enforcement
         (matching MatACDC's ``limac = 0`` option).
+    enforce_slack_q_limits : bool, optional
+        Also bound the reactive power of Vdc-slack converters that hold AC
+        voltage (``vdc_vac``) onto their capability region, dropping AC-voltage
+        control and holding the clamped Q when the limit is hit (default:
+        ``False``). Their active power is set by the DC power balance and is
+        never curtailed. Off by default: MatACDC exempts slack converters from
+        its capability check entirely, so leaving this off preserves that
+        reference behaviour. This is a standalone opt-in, independent of
+        ``enforce_limits``.
 
     Returns
     -------
@@ -131,6 +141,13 @@ def run_pf(
         # (matching MatACDC's convlim placement).
         if n_vsc > 0 and enforce_limits:
             _check_converter_limits(net)
+
+        # --- Step 1c: Bound Vdc-slack reactive power (opt-in) ---
+        # Clamps the reactive power of Vdc-slack converters that hold AC
+        # voltage onto their capability region, without touching their active
+        # power (fixed by the DC balance). Off by default; see run_pf docstring.
+        if n_vsc > 0 and enforce_slack_q_limits:
+            _check_slack_q_limits(net)
 
         # --- Step 2: Converter calculations ---
         if n_vsc > 0:
@@ -1014,6 +1031,68 @@ def _check_converter_limits(net: Network) -> bool:
             vcontrol_disabled.add(vsc_idx)
         if "droop" in sel["control"]:
             droop_disabled.add(vsc_idx)
+
+    return limit_hit
+
+
+def _check_slack_q_limits(net: Network) -> bool:
+    """
+    Bound the reactive power of Vdc-slack converters that hold AC voltage.
+
+    A ``vdc_vac`` converter is the DC slack -- its active power is fixed by the
+    DC power balance and cannot be curtailed -- but it also holds AC voltage,
+    absorbing/injecting whatever reactive power that takes. Reactive power does
+    not enter the DC power balance, so it *can* be bounded independently of the
+    active power. This function does exactly that: it evaluates the capability
+    diagram (:func:`_convlim`, or the apparent-power fallback) at the converter's
+    fixed slack active power and current reactive power and, when only the
+    reactive power is infeasible (``viol == 1``, active power preserved), clamps
+    Q onto the region and drops AC-voltage control (adding the converter to
+    ``net._vsc_vcontrol_disabled`` so it holds the clamped Q, exactly as a
+    non-slack Vac converter does on a reactive-limit violation).
+
+    A ``viol == 2`` result means the *active* power itself is outside the
+    feasible range; that cannot be fixed on a slack converter (its P is the DC
+    balance), so it is left untouched -- the post-solve overload warning already
+    surfaces it.
+
+    Unlike :func:`_check_converter_limits`, all violating slack converters are
+    corrected in one call rather than one-per-grid: reactive clamping does not
+    perturb the DC power balance, so there is no coupled-violation interaction
+    to serialise.
+
+    This runs only when ``run_pf(enforce_slack_q_limits=True)``. It is a
+    standalone opt-in; MatACDC exempts slack converters from its capability
+    check, so it is off by default.
+
+    Returns True if any converter's reactive power was clamped.
+    """
+    conv_data = net._conv_data
+    n_vsc = conv_data["n_vsc"]
+    vcontrol_disabled = net._vsc_vcontrol_disabled
+
+    limit_hit = False
+    for i in range(n_vsc):
+        control = str(conv_data["vsc_control"][i])
+        # Only Vdc-slack converters that also hold AC voltage have a reactive
+        # setpoint to bound. A pure Vdc/Vdc_q converter has a fixed Q already.
+        if "vdc" not in control or "vac" not in control:
+            continue
+
+        vsc_idx = conv_data["vsc_indices"][i]
+        # Already switched to holding a clamped Q on an earlier iteration.
+        if vsc_idx in vcontrol_disabled:
+            continue
+
+        viol, _p_new, q_new = _converter_limit_candidate(net, conv_data, i)
+        # viol == 1: only reactive power was infeasible (active power preserved).
+        # viol == 2: active power is infeasible -- cannot curtail a slack's P.
+        if viol != 1:
+            continue
+
+        net._q_s[vsc_idx] = q_new
+        vcontrol_disabled.add(vsc_idx)
+        limit_hit = True
 
     return limit_hit
 
