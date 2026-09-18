@@ -1,12 +1,14 @@
 """
 Regression tests for the third-round audit items (Victor, 2026-09-16).
 
-1a. Converter loading is reported as |I_c| / i_max_pu (the converter-side
-    current the limiter actually enforces) when the full capability limit set
-    is present, instead of the grid-side apparent power |S_s| / s_mva, which
-    double-counts the transformer/filter reactive consumption and flags
-    spurious overloads. Grid-side |S_s| / s_mva remains the fallback when only
-    a rating is known.
+1a. Converter loading, when the full capability limit set is present, is a
+    converter-side quantity rather than the grid-side apparent power
+    |S_s| / s_mva (which double-counts the transformer/filter reactive
+    consumption). Round 3 reported |I_c| / i_max_pu here; round 4 (see
+    test_audit_round4.py) moved that physical current ratio to the diagnostic
+    column i_c_loading_percent and made loading_percent the current-circle
+    utilisation the limiter actually enforces. This test guards that move.
+    Grid-side |S_s| / s_mva remains the fallback when only a rating is known.
 2.  DC-line topology validation: run_pf warns when an in-service DC line joins
     buses carrying different dc_grid labels, since per-grid slack sharing and
     the per-grid converter-limit rule assume dc_grid matches connectivity.
@@ -37,8 +39,14 @@ def _slack_q_case():
     return net
 
 
-def test_loading_uses_converter_current_when_full_limit_set():
-    """With Icmax/Vcmax/Vcmin defined, loading = |I_c| / i_max_pu."""
+def test_loading_is_converter_side_when_full_limit_set():
+    """With Icmax/Vcmax/Vcmin defined, loading is a converter-side quantity.
+
+    The physical current ratio |I_c| / i_max_pu (round 3) now lives in the
+    i_c_loading_percent diagnostic column; loading_percent is the current-circle
+    utilisation (round 4). Both differ from the grid-side |S_s| / s_mva because
+    of the transformer/filter reactive consumption.
+    """
     net = create_case5_stagg_mtdc_slack()
     s_base = net.s_base
     i_max = 45.0 / s_base
@@ -48,12 +56,11 @@ def test_loading_uses_converter_current_when_full_limit_set():
 
     assert run_pf(net, max_iter_outer=60)
 
+    # The physical current ratio moved to i_c_loading_percent.
     i_c = abs(net._vsc_internal[0]["i_c"])
-    expected = i_c / i_max * 100.0
-    assert net.res_vsc.at[0, "loading_percent"] == pytest.approx(expected, abs=1e-9)
+    assert net.res_vsc.at[0, "i_c_loading_percent"] == pytest.approx(i_c / i_max * 100.0, abs=1e-9)
 
-    # And it is NOT the grid-side apparent-power number (the two quantities
-    # genuinely differ because of the transformer/filter reactive consumption).
+    # loading_percent is NOT the grid-side apparent-power number.
     p = float(net.res_vsc.at[0, "p_ac_mw"])
     q = float(net.res_vsc.at[0, "q_ac_mvar"])
     grid_side = np.hypot(p, q) / float(net.res_vsc.at[0, "s_mva"]) * 100.0

@@ -720,6 +720,47 @@ def _voltage_limit_q(ps, vsm, vc, g2, b2, g12, b12):
     return vsm ** 2 * b12 + vsm * vc * (g2 * sin_dd - b2 * cos_dd)
 
 
+def _current_circle(vsm, z_tf, b_f, i_max):
+    """
+    MatACDC converter current-limit circle in the (P_s, Q_s) power plane.
+
+    Returns ``(mpl1, r_l1)``: the centre (complex, in MatACDC injection
+    convention) and radius of the circle on which ``|I_c| == i_max``. A
+    setpoint whose injection ``s_inj = -(P_s + jQ_s)`` satisfies
+    ``|s_inj - mpl1| <= r_l1`` is within the current limit. This is the exact
+    boundary :func:`_convlim` enforces (see its L1 test), so it is the right
+    reference for a reported current-loading figure. Reference: MatACDC
+    convlim.m; J. Beerten et al., IEEE Trans. Power Syst., 2012.
+
+    Parameters
+    ----------
+    vsm : float
+        Grid-side (filter-bus) voltage magnitude ``|V_s|`` (per-unit).
+    z_tf : complex
+        Transformer / phase-reactor series impedance (per-unit).
+    b_f : float
+        Filter susceptance (per-unit).
+    i_max : float
+        Converter current limit (per-unit).
+    """
+    ztf = complex(z_tf)
+    bf = float(b_f)
+    has_tf = abs(ztf) > 1e-12
+    has_bf = abs(bf) > 1e-12
+    zf = 1.0 / (1j * bf) if has_bf else np.inf
+    ytf = (1.0 / ztf) if has_tf else np.inf
+    yf = 1j * bf
+    if has_bf:
+        mpl1 = complex(-vsm ** 2 * (1.0 / (np.conj(zf) + (np.conj(ztf) if has_tf else 0.0))))
+    else:
+        mpl1 = 0.0 + 0.0j
+    if has_tf:
+        r_l1 = vsm * i_max * abs(np.conj(ytf) / (np.conj(yf) + np.conj(ytf)))
+    else:
+        r_l1 = vsm * i_max
+    return mpl1, r_l1
+
+
 def _convlim(p_s_pu, q_s_pu, v_s, z_tf, b_f, z_c, i_max, vc_max, vc_min,
              eps_lim: float = 1e-4):
     """
@@ -804,14 +845,7 @@ def _convlim(p_s_pu, q_s_pu, v_s, z_tf, b_f, z_c, i_max, vc_max, vc_min,
     b12 = complex(y12).imag
 
     # --- maximum current-limit circle (L1) ---
-    if has_bf:
-        mpl1 = complex(-vsm ** 2 * (1.0 / (np.conj(zf) + (np.conj(ztf) if has_tf else 0.0))))
-    else:
-        mpl1 = 0.0 + 0.0j
-    if has_tf:
-        r_l1 = vsm * i_max * abs(np.conj(ytf) / (np.conj(yf) + np.conj(ytf)))
-    else:
-        r_l1 = vsm * i_max
+    mpl1, r_l1 = _current_circle(vsm, ztf, bf, i_max)
     qc = mpl1.imag
     pmax_l1 = mpl1.real + r_l1
     pmin_l1 = mpl1.real - r_l1

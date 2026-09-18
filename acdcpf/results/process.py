@@ -369,13 +369,19 @@ def process_converter_results(net: Network) -> None:
             # Converter loading.
             #
             # When the full capability limit set is defined (Icmax, Vcmax,
-            # Vcmin), the limiter enforces the phase-reactor current
-            # |I_c| <= i_max_pu -- a converter-side quantity, after the
-            # transformer and filter. Report loading as |I_c| / i_max_pu so the
-            # number matches what is actually enforced. Using the grid-side
-            # apparent power |S_s| / s_mva instead would double-count the
-            # reactive consumption of the transformer/filter branch and flag
-            # spurious overloads on converters the limiter considers legal.
+            # Vcmin), the limiter (_convlim) enforces the MatACDC current limit
+            # as a *circle in the (P_s, Q_s) power plane* -- centre mpl1, radius
+            # r_l1 -- not as a bound on the physical current. Report loading as
+            # the utilisation of that circle,
+            #     loading = 100 * |s_inj - mpl1| / r_l1 ,  s_inj = -(P_s + jQ_s),
+            # so the number agrees with the limiter's verdict by construction: a
+            # converged point it deems feasible (viol == 0) reports <= 100 %, and
+            # no spurious overload warning fires on a converter it considers
+            # legal. (The physical phase-reactor current ratio |I_c| / i_max_pu
+            # is a current-plane quantity that does NOT coincide with this power-
+            # plane circle -- MatACDC's circle is an approximation -- so it can
+            # read > 100 % at a feasible point; it is retained separately as
+            # i_c_loading_percent.)
             #
             # Otherwise (only a rating s_mva is known) fall back to the
             # grid-side apparent-power measure. Reported for every converter --
@@ -390,8 +396,20 @@ def process_converter_results(net: Network) -> None:
 
             s_rated = row.get("s_mva", 0.0)
             s_rated = 0.0 if s_rated is None or (isinstance(s_rated, float) and np.isnan(s_rated)) else float(s_rated)
+            i_c_loading = float("nan")
             if full_limit_set and i_c_pu is not None:
-                loading = i_c_pu / i_max_pu * 100.0
+                # Single source of truth for the circle geometry: the same
+                # helper _convlim uses. Lazy import avoids a circular import
+                # (runpf imports this module).
+                from ..powerflow.runpf import _current_circle
+                vsm = abs(net._vsc_internal[idx].get("v_s", v_ac))
+                z_tf = complex(_limit_value(row.get("r_tf_pu")),
+                               _limit_value(row.get("x_tf_pu")))
+                b_f = _limit_value(row.get("b_filter_pu"))
+                mpl1, r_l1 = _current_circle(vsm, z_tf, b_f, i_max_pu)
+                s_inj = -(p_ac + 1j * q_ac) / net.s_base
+                loading = abs(s_inj - mpl1) / r_l1 * 100.0 if r_l1 > 0 else 0.0
+                i_c_loading = i_c_pu / i_max_pu * 100.0
             else:
                 loading = s_ac / s_rated * 100.0 if s_rated > 0 else 0.0
 
@@ -407,6 +425,7 @@ def process_converter_results(net: Network) -> None:
                 "i_ac_ka": i_ac_ka,
                 "s_mva": s_rated,
                 "loading_percent": loading,
+                "i_c_loading_percent": i_c_loading,
             })
 
     if vsc_results:
@@ -418,7 +437,7 @@ def process_converter_results(net: Network) -> None:
         net.res_vsc = pd.DataFrame(
             columns=["name", "p_ac_mw", "q_ac_mvar", "p_dc_mw", "p_loss_mw",
                       "v_ac_pu", "v_dc_pu", "v_converter_pu", "i_ac_ka",
-                      "s_mva", "loading_percent"]
+                      "s_mva", "loading_percent", "i_c_loading_percent"]
         )
 
     # --- DC-DC Results (transformer model) ---

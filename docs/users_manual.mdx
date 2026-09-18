@@ -1019,6 +1019,9 @@ After power flow, `net.res_ac_bus` contains:
 | `v_dc_pu` | pu | DC voltage |
 | `v_converter_pu` | pu | Internal filter voltage |
 | `i_ac_ka` | kA | AC-side current |
+| `s_mva` | MVA | Converter rating |
+| `loading_percent` | % | Utilisation of the enforced limit. With the full capability set (`i_max_pu`, `vc_max_pu`, `vc_min_pu`), the current-limit-circle utilisation `100·\|s_inj − mpl1\|/r_l1` — the boundary `_convlim` enforces, so ≤ 100 % whenever the limiter deems the point feasible. Otherwise the grid-side `100·\|S_s\|/s_mva`. |
+| `i_c_loading_percent` | % | Physical phase-reactor current ratio `100·\|I_c\|/i_max_pu` (diagnostic). `NaN` without the full capability set. May exceed 100 % at a feasible point, since MatACDC's current limit is a circle in the power plane rather than a bound on the current. |
 
 ### DC-DC Converter Results
 

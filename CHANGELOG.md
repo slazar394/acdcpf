@@ -11,12 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Converter `loading_percent` now reflects the enforced quantity.** When the
   full capability limit set is defined (`i_max_pu`, `vc_max_pu`, `vc_min_pu`),
-  loading is reported as the phase-reactor current `|I_c| / i_max_pu` — the
-  converter-side current the limiter (`_convlim`) actually constrains — rather
-  than the grid-side apparent power `|S_s| / s_mva`. The grid-side measure
-  double-counts the transformer/filter reactive consumption and flagged
-  spurious overloads on converters the limiter considered legal. `|S_s| /
-  s_mva` remains the fallback when only a rating `s_mva` is known.
+  loading is reported as the utilisation of the MatACDC current-limit circle,
+  `100 · |s_inj − mpl1| / r_l1` with `s_inj = −(P_s + jQ_s)` — the exact
+  boundary the limiter (`_convlim`) enforces in the `(P_s, Q_s)` power plane.
+  This agrees with the limiter's verdict by construction: a converged point it
+  deems feasible (`viol == 0`) reports ≤ 100 %, so no spurious overload warning
+  fires on a converter it considers legal. Neither the grid-side apparent power
+  `|S_s| / s_mva` (double-counts transformer/filter reactive consumption) nor
+  the physical phase-reactor current ratio `|I_c| / i_max_pu` (a current-plane
+  quantity that does not coincide with MatACDC's power-plane circle, so it can
+  read > 100 % at a feasible point) matches that boundary. `|S_s| / s_mva`
+  remains the fallback when only a rating `s_mva` is known.
+- **New `i_c_loading_percent` column on `net.res_vsc`.** Retains the physical
+  phase-reactor current ratio `|I_c| / i_max_pu` (%) as a diagnostic, alongside
+  the enforced `loading_percent`; `NaN` when the full limit set is absent.
 - CHANGELOG: converter losses are computed in `_calculate_converter_equations`
   (and stored on the network), not in `process_converter_results`, which only
   reads them.
