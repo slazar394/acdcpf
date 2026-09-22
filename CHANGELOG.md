@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Documentation error on the DC base voltage convention.** `create_dc_bus`
+  and two places in the user manual stated that `v_base` is the pole-to-pole
+  voltage when `pol = 2`. It is the pole-to-ground (per-pole) voltage for every
+  value of `pol`, and `r_ohm_per_km` on a DC line is the resistance of a single
+  conductor. This is a docs-only correction, reported by Victor Tibanlombo
+  (Tool #7). No solver behaviour changed, and no result changes.
+  The code has always solved MatACDC Eq. (14),
+  `P_dc,i = p · U_dc,i · Σ_j Y_dc,ij · (U_dc,i − U_dc,j)`, which is written in
+  per-pole voltages and per-conductor resistances, so the `pol` factor is what
+  accounts for the second conductor. The rest of the manual already documented
+  the correct convention (`v_base` "per pole"), so the two wrong statements
+  contradicted it. `tests/test_dc_pole_convention.py` (17 tests) now locks the
+  three observable consequences on minimal two-bus DC cases with no AC side and
+  no converters: the reported triple satisfies `P = pol · U · I`, `i_ka` is the
+  current in one conductor and does not scale with `pol`, and line losses are
+  `pol · I² · R`.
 - **Converter `loading_percent` now reflects the enforced quantity.** When the
   full capability limit set is defined (`i_max_pu`, `vc_max_pu`, `vc_min_pu`),
   loading is reported as the utilisation of the MatACDC current-limit circle,

@@ -407,7 +407,7 @@ idx = pf.create_ac_gen(
 ```python
 idx = pf.create_dc_bus(
     net,                   # Network object
-    v_base=400.0,          # Base voltage (kV, pole-to-pole)
+    v_base=400.0,          # Base voltage (kV, pole-to-ground)
     dc_grid=0,             # DC grid ID (for multi-grid systems)
     bus_type="vdc",        # Bus type: "vdc", "p", or "droop"
     v_dc_pu=1.0,           # DC voltage setpoint (pu)
@@ -427,10 +427,25 @@ idx = pf.create_dc_bus(
 | `"droop"` | Droop-controlled bus | Calculated | Follows droop law |
 
 **Voltage Convention:**
-- `v_base` is the **per-pole** DC voltage (kV)
+- `v_base` is the **per-pole (pole-to-ground)** DC voltage in kV, for every value of `pol`. It is never the pole-to-pole voltage.
+- `r_ohm_per_km` on a DC line is the resistance of a **single conductor**, never the loop resistance.
 - For symmetric monopole +/-200 kV: use `v_base=200` (per pole), with `pol=2`
 - For bipole +/-400 kV: use `v_base=400` (per pole), with `pol=2`
+- For asymmetric monopole 400 kV to ground: use `v_base=400`, with `pol=1`
 - The `pol` parameter in `create_empty_network` multiplies DC power by the number of poles: `P = pol * V * G * V`
+
+This is MatACDC Eq. (14), `P_dc,i = p * U_dc,i * sum_j Y_dc,ij * (U_dc,i - U_dc,j)`,
+which is written in per-pole voltages and per-conductor resistances. The `pol`
+factor is what accounts for the second conductor, so the voltage it multiplies
+must be the pole-to-ground voltage. Three consequences follow directly, and all
+three are locked by `tests/test_dc_pole_convention.py`:
+
+- The reported triple satisfies `P = pol * U * I`, with `U` in `res_dc_bus.v_dc_kv` and `I` in `res_dc_line.i_ka`.
+- `I` is the current in one conductor, not the sum over poles.
+- Line losses are `pol * I^2 * R`, which is one `I^2 * R` per conductor.
+
+A bipole at +/-400 kV therefore carries `2 * 400 kV * I`, and entering
+`v_base=800` would overstate its power by a factor of two.
 
 **DataFrame columns (`net.dc_bus`):**
 
@@ -1088,7 +1103,7 @@ AC System                         DC System
 **Parameters:**
 - AC buses: 380 kV rated voltage
 - AC line: 100 km, R=0.02 Ohm/km, X=0.268 Ohm/km, B=4.24 uS/km
-- DC buses: 400 kV pole-to-pole
+- DC buses: 400 kV per pole (pole-to-ground), pol=2
 - DC line: 100 km, R=0.0114 Ohm/km
 - VSC-0: Vdc control at 1.0 pu
 - VSC-1: P control at 500 MW (rectifier)

@@ -26,7 +26,15 @@ def create_dc_bus(
     net : Network
         The network to add the bus to
     v_base : float
-        Base voltage in kV (pole-to-pole for bipole, pole-to-ground for monopole)
+        Base voltage in kV, always measured pole-to-ground, for every value
+        of ``net.pol``.  The DC power flow solves
+        ``P_i = pol * U_i * sum_j(G_ij * U_j)`` (MatACDC Eq. 14), which is
+        written in per-pole voltages and per-conductor resistances, so the
+        ``pol`` factor already accounts for the second conductor.
+        For a symmetric monopole or bipole at +/-400 kV, pass
+        ``v_base=400`` with ``pol=2``, not 800.
+        For an asymmetric monopole at 400 kV to ground, pass ``v_base=400``
+        with ``pol=1``.
     name : str, optional
         Bus name
     dc_grid : int, optional
@@ -84,9 +92,11 @@ def create_dc_line(
     length_km : float
         Line length in km
     r_ohm_per_km : float
-        Resistance in Ohm/km
+        Resistance in Ohm/km of a single conductor (one pole).  With
+        ``pol=2`` the return conductor is accounted for by the ``pol``
+        factor in the power equation, so do not enter a loop resistance.
     max_i_ka : float, optional
-        Maximum current in kA
+        Maximum current in kA per conductor
     name : str, optional
         Line name
     in_service : bool, optional
