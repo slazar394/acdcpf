@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sign error in the converter filter term (results change for stations with
+  a filter).** `_calculate_converter_equations` and `_backward_converter_solve`
+  computed the power continuing from the filter bus towards the phase reactor
+  as `S_cf = S_sf + jQ_f` with `Q_f = −B_f·U_f²`, i.e. they treated the
+  capacitive filter as an inductor. MatACDC writes that relation in its
+  injection convention; in acdcpf's load convention it is `S_cf = S_sf − jQ_f`.
+  The error changed the converter current, losses and the active power of
+  slack/droop converters whenever `b_filter_pu > 0` (0.01–0.24 MW on the
+  MatACDC reference cases). With the fix, all four MatACDC reference cases are
+  reproduced to solver precision (≈1e-7 MW), and the tolerances in
+  `tests/test_matacdc_validation.py` were tightened from 0.1–0.3 MW to 1e-4 MW
+  so that an error of this size can no longer pass. Stations without a filter
+  (e.g. the hybrid IEEE 33-bus cases) are unaffected.
+- **DC loads and generators at droop-controlled DC buses were dropped from the
+  DC power balance.** In `calc_dc_power_mismatch` the droop-bus mismatch
+  compared the converter's droop power alone with the bus's total net
+  injection, so constant-power DC loads and DC generators connected to a droop
+  bus were ignored and the DC solution did not conserve power (while still
+  reporting convergence). The droop mismatch now includes the bus's
+  non-converter injection. `tests/test_dc_droop_local_injection.py` locks DC
+  power conservation, the droop-bus balance and the droop characteristic.
+- **Droop constants of `create_case5_stagg_mtdc_droop` were 345× too stiff.**
+  The MatACDC `DROOP` column is a per-unit voltage change per MW
+  (`PVdroop = DROOP·baseMVA`), whereas `droop_kv_per_mw` is in kV/MW; the two
+  are related by `k[kV/MW] = DROOP · basekVdc`. The case entered the MatACDC
+  values unconverted (0.005/0.007 instead of 1.725/2.415 kV/MW). Corrected; the
+  case now matches its MatACDC reference to solver precision.
+- **`loading_percent` and `i_c_loading_percent` now coincide.** The entry below
+  attributed their disagreement to MatACDC's power-plane current circle not
+  coinciding with the physical current. That was a consequence of the filter
+  sign error: the circle is exact for the phase-reactor current, and with the
+  corrected station equations both columns agree to solver precision.
 - **Documentation error on the DC base voltage convention.** `create_dc_bus`
   and two places in the user manual stated that `v_base` is the pole-to-pole
   voltage when `pol = 2`. It is the pole-to-ground (per-pole) voltage for every

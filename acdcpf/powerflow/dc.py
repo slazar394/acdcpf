@@ -49,6 +49,10 @@ def run_dc_pf(
     v_dc_init, p_spec, slack_mask, droop_mask, p_mask = build_dc_bus_data(
         net, p_dc_vsc
     )
+    # Non-converter injection at each bus (DC generators minus constant-power
+    # DC loads, pu). At droop buses the converter power follows the droop law,
+    # but these local injections still enter the bus power balance.
+    _, p_other, _, _, _ = build_dc_bus_data(net, None)
 
     max_idx = net.dc_bus.index.max()
     n = max_idx + 1
@@ -84,7 +88,8 @@ def run_dc_pf(
     for iteration in range(1, max_iter + 1):
         # Calculate power mismatch
         mismatch = calc_dc_power_mismatch(
-            v_dc, G_dense, p_spec, non_slack, droop_mask, droop_params, pol
+            v_dc, G_dense, p_spec, non_slack, droop_mask, droop_params, pol,
+            p_other=p_other,
         )
 
         # Check convergence
@@ -150,6 +155,7 @@ def calc_dc_power_mismatch(
     droop_mask: np.ndarray,
     droop_params: dict,
     pol: float = 1.0,
+    p_other: np.ndarray = None,
 ) -> np.ndarray:
     """
     Calculate DC power mismatch at non-slack buses.
@@ -157,7 +163,12 @@ def calc_dc_power_mismatch(
     For P-controlled buses (Eq. 13.61-13.62):
         mismatch = P_spec - P_calc
     For droop buses (Eq. 13.66-13.68):
-        mismatch = P_dc0 + (1/k)*(V - V0) - P_calc
+        mismatch = P_dc0 - (1/k)*(V - V0) + P_other - P_calc
+
+    ``P_calc`` is the total net injection at the bus, so at a droop bus the
+    converter's droop power must be complemented by the bus's non-converter
+    injection ``P_other`` (DC generators minus constant-power DC loads);
+    otherwise local loads and generators would drop out of the power balance.
 
     Parameters
     ----------
@@ -175,6 +186,9 @@ def calc_dc_power_mismatch(
         Droop parameters per bus
     pol : float
         Polarity (default: 1.0)
+    p_other : np.ndarray, optional
+        Non-converter injection per bus (pu): DC generators minus
+        constant-power DC loads. Used at droop buses (default: zero).
 
     Returns
     -------
@@ -199,7 +213,8 @@ def calc_dc_power_mismatch(
                 p_droop = p0 - (1.0 / k_pu) * (v_dc[i] - v0)
             else:
                 p_droop = p0
-            mismatch[ii] = p_droop - p_calc
+            p_loc = float(p_other[i]) if p_other is not None else 0.0
+            mismatch[ii] = p_droop + p_loc - p_calc
         else:
             mismatch[ii] = p_spec[i] - p_calc
 
