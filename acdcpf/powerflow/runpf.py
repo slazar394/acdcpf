@@ -623,11 +623,15 @@ def _calculate_converter_equations(net: Network) -> None:
         # Filter-side transformer power
         s_sf = v_f * np.conj(i_tf)
 
-        # Filter reactive power (Eq. 13.13)
+        # Filter reactive power (Eq. 13.13): Q_f = -B_f*U_f^2 is the reactive
+        # power *absorbed* by the (capacitive) filter, i.e. it generates
+        # B_f*U_f^2. MatACDC writes S_cf = S_sf + jQ_f in its injection
+        # convention; in acdcpf's load convention all powers are negated, so
+        # the power continuing towards the converter is S_cf = S_sf - jQ_f.
         q_f = -b_f * abs(v_f) ** 2
 
-        # Converter-side apparent power at filter bus (Eq. 13.14)
-        s_cf = s_sf + 1j * q_f
+        # Converter-side apparent power at filter bus (Eq. 13.14), load convention
+        s_cf = s_sf - 1j * q_f
 
         # Converter (phase reactor) current (Eq. 13.15)
         if abs(v_f) > 1e-10:
@@ -1262,7 +1266,7 @@ def _backward_converter_solve(net: Network, conv_i: int, vsc_idx: int, p_dc_mw: 
         v_f = v_s - i_tf * z_tf
         s_sf = v_f * np.conj(i_tf)
         q_f = -b_f * abs(v_f) ** 2
-        s_cf = s_sf + 1j * q_f
+        s_cf = s_sf - 1j * q_f  # load convention, see _calculate_converter_equations
 
         if abs(v_f) > 1e-10:
             i_c = np.conj(s_cf / v_f)

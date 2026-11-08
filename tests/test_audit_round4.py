@@ -18,6 +18,14 @@ never contradicts the limiter's current-circle verdict. The physical current
 ratio |I_c| / i_max_pu is retained as a separate diagnostic column
 `i_c_loading_percent`. The grid-side |S_s| / s_mva fallback (no full limit
 set) is unchanged.
+
+Update (filter-sign fix): the mismatch between the two quantities described
+above was caused by a sign error in the filter term of the converter station
+equations, not by the MatACDC circle. The current-limit circle (Beerten 2012,
+eq. 5.15) is exact for the phase-reactor current, and with the corrected
+station equations |I_c| / i_max_pu and the circle utilisation coincide to
+solver precision. Both columns are kept; the tests below now also lock their
+agreement.
 """
 
 import numpy as np
@@ -90,11 +98,11 @@ def test_physical_current_ratio_is_a_separate_diagnostic_column():
 
 def test_loading_never_contradicts_limiter_verdict():
     """A converged point the limiter deems feasible (viol == 0) reports
-    loading_percent <= 100 %, even where the physical current ratio exceeds it.
+    loading_percent <= 100 %.
 
-    This is the whole point of the change: the current-circle utilisation
-    agrees with _convlim by construction, so no spurious overload warning
-    fires on a converter the limiter considers legal.
+    The current-circle utilisation agrees with _convlim by construction, so no
+    spurious overload warning fires on a converter the limiter considers legal;
+    and the physical current ratio coincides with it (exact circle).
     """
     net, _ = _case_full_limit_set()
     assert run_pf(net, max_iter_outer=60)
@@ -105,9 +113,10 @@ def test_loading_never_contradicts_limiter_verdict():
     loading = float(net.res_vsc.at[0, "loading_percent"])
     assert loading <= 100.0 + 1e-6
 
-    # The physical current ratio is the quantity that used to (spuriously)
-    # exceed 100 % here; it stays available as the diagnostic column.
-    assert net.res_vsc.at[0, "i_c_loading_percent"] > loading
+    # The physical current ratio used to exceed 100 % here because of the
+    # filter sign error; with the correct station equations it coincides with
+    # the current-circle utilisation.
+    assert net.res_vsc.at[0, "i_c_loading_percent"] == pytest.approx(loading, abs=1e-6)
 
 
 def test_loading_falls_back_to_apparent_power_without_limit_set():

@@ -33,27 +33,22 @@ import json
 
 REFERENCE_DIR = Path(__file__).parent / "matacdc_reference_data"
 
-# Default tolerances
-VM_ATOL = 1e-4       # AC voltage magnitude (pu)
-VA_ATOL = 1e-2       # AC voltage angle (degrees)
-VDC_ATOL = 1e-4      # DC voltage (pu)
-P_AC_ATOL = 0.1      # AC line active power (MW)
-Q_AC_ATOL = 0.1      # AC line reactive power (MVAr)
-P_DC_ATOL = 0.1      # DC line active power (MW)
-VSC_P_ATOL = 0.1     # VSC active power (MW)
-VSC_Q_ATOL = 0.1     # VSC reactive power (MVAr)
+# Default tolerances. acdcpf reproduces MatACDC to solver precision
+# (~1e-7 MW, ~1e-8 deg) on all four cases, so these are tight on purpose:
+# the former relaxed values (0.1-0.3 MW) hid a filter sign error in the
+# converter station equations and a droop-constant unit error in the Stagg
+# droop case.
+VM_ATOL = 1e-6       # AC voltage magnitude (pu)
+VA_ATOL = 1e-5       # AC voltage angle (degrees)
+VDC_ATOL = 1e-6      # DC voltage (pu)
+P_AC_ATOL = 1e-4     # AC line active power (MW)
+Q_AC_ATOL = 1e-4     # AC line reactive power (MVAr)
+P_DC_ATOL = 1e-4     # DC line active power (MW)
+VSC_P_ATOL = 1e-4    # VSC active power (MW)
+VSC_Q_ATOL = 1e-4    # VSC reactive power (MVAr)
 
-# Per-case relaxed tolerances (solver/rounding differences)
-CASE_TOLERANCES = {
-    "case24_ieee_rts_mtdc": {
-        "VA_ATOL": 0.03,
-        "P_AC_ATOL": 0.3,
-        "VSC_P_ATOL": 0.3,
-    },
-    "case5_stagg_mtdc_droop": {
-        "VSC_P_ATOL": 0.15,
-    },
-}
+# Per-case relaxed tolerances (none needed at present)
+CASE_TOLERANCES = {}
 
 
 def _tol(case_name: str, key: str, default: float) -> float:

@@ -153,7 +153,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
 
     # Converter 1: Droop control (type_dc=3) with PQ control (type_ac=1)
     # P=-60 MW, Q=-40 MVAr (inverter)
-    # Droop: 0.0050 pu (kV/MW), Pdcset=-58.6274 MW, Vdcset=1.0079 pu
+    # Droop: MatACDC DROOP = 0.0050 pu/MW -> k = 0.0050 * 345 kV = 1.725 kV/MW, Pdcset=-58.6274 MW, Vdcset=1.0079 pu
     create_vsc(
         net,
         ac_bus=bus_map[dc_to_ac[1]],
@@ -162,7 +162,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
         control_mode="droop_q",
         p_mw=60.0,      # Negated
         q_mvar=40.0,    # Negated
-        droop_kv_per_mw=0.0050,   # kV/MW
+        droop_kv_per_mw=0.0050 * 345.0,   # kV/MW (MatACDC DROOP x basekVdc)
         p_dc_set_mw=58.6274,      # DC power setpoint (rectifier, positive into DC)
         v_dc_set_pu=1.0079,       # DC voltage setpoint
         r_tf_pu=0.0015, x_tf_pu=0.1121,
@@ -176,7 +176,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
 
     # Converter 2: Droop control (type_dc=3) with Vac control (type_ac=2)
     # P=0, Q=0
-    # Droop: 0.0070 pu (kV/MW), Pdcset=21.9013 MW, Vdcset=1.0000 pu
+    # Droop: MatACDC DROOP = 0.0070 pu/MW -> k = 0.0070 * 345 kV = 2.415 kV/MW, Pdcset=21.9013 MW, Vdcset=1.0000 pu
     create_vsc(
         net,
         ac_bus=bus_map[dc_to_ac[2]],
@@ -186,7 +186,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
         p_mw=0.0,
         q_mvar=0.0,
         v_ac_pu=1.0,
-        droop_kv_per_mw=0.0070,
+        droop_kv_per_mw=0.0070 * 345.0,
         p_dc_set_mw=-21.9013,     # Inverter, negative (extracts from DC)
         v_dc_set_pu=1.0000,
         r_tf_pu=0.0015, x_tf_pu=0.1121,
@@ -200,7 +200,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
 
     # Converter 3: Droop control (type_dc=3) with PQ control (type_ac=1)
     # P=35 MW, Q=5 MVAr (inverter)
-    # Droop: 0.0050 pu (kV/MW), Pdcset=36.1856 MW, Vdcset=0.9978 pu
+    # Droop: MatACDC DROOP = 0.0050 pu/MW -> k = 0.0050 * 345 kV = 1.725 kV/MW, Pdcset=36.1856 MW, Vdcset=0.9978 pu
     create_vsc(
         net,
         ac_bus=bus_map[dc_to_ac[3]],
@@ -209,7 +209,7 @@ def create_case5_stagg_mtdc_droop() -> Network:
         control_mode="droop_q",
         p_mw=-35.0,     # Negated (inverter)
         q_mvar=-5.0,    # Negated
-        droop_kv_per_mw=0.0050,
+        droop_kv_per_mw=0.0050 * 345.0,
         p_dc_set_mw=-36.1856,     # Inverter, negative (extracts from DC)
         v_dc_set_pu=0.9978,
         r_tf_pu=0.0015, x_tf_pu=0.1121,
